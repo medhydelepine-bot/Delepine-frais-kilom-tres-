@@ -19,40 +19,35 @@ st.markdown("""
     <style>
     /* 1. LARGEUR & ESPACEMENT DU BANDEAU GAUCHE */
     [data-testid="stSidebar"] {
-        min-width: 400px; /* Largeur confortable */
+        min-width: 400px;
         max-width: 400px;
     }
     
-    /* Réduire l'espace vertical entre les éléments du sidebar */
-    [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
-        gap: 0.5rem; 
-        padding-top: 1rem;
-    }
-
-    /* 2. DESIGN DE LA BOITE DE PRIX (Plus compacte et centrée) */
+    /* 2. DESIGN DE LA BOITE DE PRIX */
     .price-box {
         background-color: #ffffff;
-        padding: 15px; /* Moins de padding */
+        padding: 15px;
         border-radius: 10px;
-        text-align: center; /* Tout centrer */
+        text-align: center;
         border: 1px solid #eee;
-        border-top: 6px solid #ccc; /* Bordure en haut pour gagner de la place latérale */
+        border-top: 6px solid #ccc;
         box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-        margin-bottom: 10px;
+        margin-bottom: 15px;
+        margin-top: 10px;
     }
     .big-price {
-        font-size: 32px; /* Police réduite */
+        font-size: 38px;
         font-weight: 800;
         margin: 5px 0;
     }
     .zone-badge {
         display: inline-block;
-        padding: 4px 12px;
+        padding: 5px 15px;
         border-radius: 15px;
         color: white;
         font-weight: bold;
         text-transform: uppercase;
-        font-size: 0.75rem;
+        font-size: 0.8rem;
         letter-spacing: 1px;
         margin-bottom: 5px;
     }
@@ -60,58 +55,47 @@ st.markdown("""
     /* Lignes d'infos centrées */
     .info-container {
         margin-top: 10px;
-        font-size: 0.85rem;
+        font-size: 0.9rem;
         color: #555;
         display: flex;
         flex-direction: column;
-        align-items: center; /* Centre les éléments flex */
-        gap: 5px;
+        align-items: center;
+        gap: 6px;
     }
     .info-line {
         display: flex;
         justify-content: space-between;
-        width: 80%; /* Ne prend pas toute la largeur pour rester centré visuellement */
+        width: 85%;
         border-bottom: 1px dotted #eee;
+        padding-bottom: 2px;
     }
 
-    /* 3. TABLEAU LÉGENDE (Compact) */
+    /* 3. TABLEAU LÉGENDE */
     .legend-row {
         display: flex;
         justify-content: space-between;
-        padding: 4px 12px; /* Plus fin */
+        padding: 4px 12px;
         margin-bottom: 3px;
         border-radius: 4px;
         color: white;
         font-weight: 600;
-        font-size: 0.75rem; /* Police plus petite */
+        font-size: 0.8rem;
         align-items: center;
     }
     
-    /* Centrage global des titres et images */
-    .css-1v0mbdj.e115fcil1 {
-        display: flex;
-        justify-content: center;
-    }
-    div[data-testid="stImage"] {
-        display: flex;
-        justify-content: center;
-    }
-    h1, h2, h3 {
-        text-align: center;
-    }
-    .stCaption {
-        text-align: center;
-    }
+    /* Centrage divers */
+    div[data-testid="stImage"] { display: flex; justify-content: center; }
+    h1, h2, h3 { text-align: center; }
+    .stCaption { text-align: center; }
     </style>
     """, unsafe_allow_html=True)
 
 # --- CONNEXION API ---
 client = None
-if ORS_API_KEY:
-    try:
-        client = openrouteservice.Client(key=ORS_API_KEY)
-    except:
-        st.error("Erreur API")
+try:
+    client = openrouteservice.Client(key=ORS_API_KEY)
+except:
+    st.error("Erreur connexion API")
 
 # --- MEMOIRE ---
 if 'route_data' not in st.session_state:
@@ -171,7 +155,7 @@ def get_route(dest_lat, dest_lon):
 # 🖥️ BARRE LATERALE (Design Centré)
 # =========================================================
 with st.sidebar:
-    # 1. Logo et Titre Centrés
+    # 1. Logo
     try:
         col_logo1, col_logo2, col_logo3 = st.columns([1, 2, 1])
         with col_logo2:
@@ -181,14 +165,15 @@ with st.sidebar:
 
     st.caption("📍 Siège : Auby (Maison)")
 
-    # 2. Recherche Compacte
+    # 2. Recherche
     st.markdown("---")
     col_input, col_btn = st.columns([3, 1])
     with col_input:
-        address_input = st.text_input("Adresse client :", label_visibility="collapsed", placeholder="Entrez une adresse...")
+        address_input = st.text_input("Recherche", label_visibility="collapsed", placeholder="Adresse...")
     with col_btn:
-        search_btn = st.button("🔎")
+        search_btn = st.button("🔎", type="primary")
     
+    # LOGIQUE DE RECHERCHE
     if search_btn and address_input and client:
         try:
             geocode = client.pelias_search(text=address_input, focus_point=[HOME_COORDS[1], HOME_COORDS[0]])
@@ -196,12 +181,13 @@ with st.sidebar:
                 coords = geocode['features'][0]['geometry']['coordinates']
                 st.session_state.last_coords = [coords[1], coords[0]]
                 st.session_state.route_data = get_route(coords[1], coords[0])
+                st.rerun() # <--- CRUCIAL : Recharge la page pour afficher le résultat
             else:
-                st.error("Non trouvé")
+                st.error("Adresse introuvable")
         except:
-            st.error("Erreur")
+            st.error("Erreur API")
 
-    # 3. Résultat Centré
+    # 3. Affichage Résultat (Prix)
     if st.session_state.route_data:
         data = st.session_state.route_data
         info = data['price_info']
@@ -209,7 +195,7 @@ with st.sidebar:
         st.markdown(f"""
         <div class="price-box" style="border-top-color: {info['color']};">
             <div class="zone-badge" style="background-color: {info['color']};">{info['label']}</div>
-            <div style="color:#999; font-size:0.7rem;">Total Prestation</div>
+            <div style="color:#999; font-size:0.75rem; margin-top:5px;">TOTAL PRESTATION</div>
             <div class="big-price" style="color: {info['color']};">{info['total']:.2f} €</div>
             
             <div class="info-container">
@@ -220,13 +206,13 @@ with st.sidebar:
         </div>
         """, unsafe_allow_html=True)
     else:
-        st.info("👈 Indiquez une adresse")
+        st.info("👈 Indiquez une adresse ou cliquez sur la carte")
 
-    # 4. Tableau Compact
+    # 4. Tableau Tarifaire
     st.markdown("---")
-    st.markdown("<h5 style='text-align: center; margin-bottom: 10px;'>🏷️ Grille Tarifaire</h5>", unsafe_allow_html=True)
+    st.markdown("<h5 style='text-align: center; margin-bottom: 15px;'>🏷️ Grille Tarifaire</h5>", unsafe_allow_html=True)
     st.markdown("""
-    <div style="width: 90%; margin: 0 auto;">
+    <div style="width: 95%; margin: 0 auto;">
         <div class="legend-row" style="background:#00b894;"><span>Zone 1 (0-10 km)</span><span>Gratuit</span></div>
         <div class="legend-row" style="background:#0984e3;"><span>Zone 2 (10-15 km)</span><span>+1.50 €</span></div>
         <div class="legend-row" style="background:#fdcb6e;"><span>Zone 3 (15-20 km)</span><span>+3.00 €</span></div>
