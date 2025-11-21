@@ -11,7 +11,7 @@ from openrouteservice import convert
 ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjI5Yjg3NDA2NjI1NzRhNjFhNzA0ZmZjMTg2Nzc5ZmMyIiwiaCI6Im11cm11cjY0In0=" 
 
 # Coordonnées du siège (Auby)
-HOME_COORDS = [50.4137, 3.0568]
+HOME_COORDS = [50.414811, 3.056337]
 # =========================================================
 
 # Configuration de la page
