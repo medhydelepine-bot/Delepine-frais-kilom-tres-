@@ -6,18 +6,16 @@ import openrouteservice
 # =========================================================
 # 🔑 CONFIGURATION
 # =========================================================
-# ⚠️ REMPLACE LA CLÉ CI-DESSOUS PAR TA VRAIE CLÉ OPENROUTESERVICE (5b3...)
-# Celle d'origine (eyJ...) ne fonctionnera pas car c'est un format incorrect.
-ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjI5Yjg3NDA2NjI1NzRhNjFhNzA0ZmZjMTg2Nzc5ZmMyIiwiaCI6Im11cm11cjY0In0=" 
+# Clé API restaurée
+ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjI5Yjg3NDA2NjI1NzRhNjFhNzA0ZmZjMTg2Nzc5ZmMyIiwiaCI6Im11cm11cjY0In0="
 
-# Coordonnées EXACTES de votre maison (Auby)
+# Coordonnées EXACTES de votre maison (Mises à jour)
 HOME_COORDS = [50.414787, 3.056332]
-
 # =========================================================
 
 st.set_page_config(page_title="Delepine Services", page_icon="🏠", layout="wide")
 
-# --- CSS (Design Global) ---
+# --- CSS (Design) ---
 st.markdown("""
     <style>
     .price-box {
@@ -54,18 +52,28 @@ st.markdown("""
         font-size: 0.95rem;
         color: #555;
     }
+    /* Style pour le tableau récapitulatif sidebar */
+    .legend-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 5px 10px;
+        margin-bottom: 5px;
+        border-radius: 6px;
+        color: white;
+        font-weight: 600;
+        font-size: 0.85rem;
+        align-items: center;
+    }
     </style>
     """, unsafe_allow_html=True)
 
 # --- CONNEXION API ---
 client = None
-if ORS_API_KEY and ORS_API_KEY != "TA_CLE_API_ICI" and not ORS_API_KEY.startswith("eyJ"):
+if ORS_API_KEY and ORS_API_KEY != "VOTRE_CLE_API_ICI":
     try:
         client = openrouteservice.Client(key=ORS_API_KEY)
-    except Exception as e:
-        st.error(f"Erreur de connexion API : {e}")
-elif ORS_API_KEY.startswith("eyJ"):
-    st.warning("⚠️ Format de clé API incorrect. Utilisez une clé standard OpenRouteService (commençant par '5b3...').")
+    except:
+        st.error("Erreur de connexion API")
 
 # --- MEMOIRE DU PROGRAMME ---
 if 'route_data' not in st.session_state:
@@ -80,7 +88,7 @@ def calculate_price_tier(km):
     color = "#7f8c8d" 
     label = "HORS ZONE"
     
-    # Ces conditions doivent correspondre à la légende
+    # Couleurs des badges (cohérentes avec la carte)
     if km <= 10:
         fee = 0; color = "#00b894"; label = "Zone 1 (Gratuit)"
     elif km <= 15:
@@ -134,8 +142,9 @@ with st.sidebar:
     try:
         st.image("logo.png", width=140)
     except:
-        st.markdown("## 🏠 Delepine Services")
+        st.warning("⚠️ Image 'logo.png' introuvable")
 
+    st.title("Delepine Services")
     st.caption("📍 Siège : Auby (Maison)")
 
     # Champ de recherche
@@ -151,7 +160,6 @@ with st.sidebar:
                 coords = geocode['features'][0]['geometry']['coordinates']
                 st.session_state.last_coords = [coords[1], coords[0]]
                 st.session_state.route_data = get_route(coords[1], coords[0])
-                st.rerun()
             else:
                 st.error("Adresse introuvable")
         except:
@@ -179,54 +187,84 @@ with st.sidebar:
     else:
         st.info("👈 Entrez une adresse ou cliquez sur la carte.")
 
+    st.markdown("---")
+    
+    # TABLEAU RÉCAPITULATIF (Légende Sidebar)
+    st.markdown("#### 🏷️ Tarifs par Zone")
+    st.markdown("""
+    <div>
+        <div class="legend-row" style="background:#00b894;"><span>Zone 1 (0-10 km)</span><span>Gratuit</span></div>
+        <div class="legend-row" style="background:#0984e3;"><span>Zone 2 (10-15 km)</span><span>+1.50 €</span></div>
+        <div class="legend-row" style="background:#fdcb6e;"><span>Zone 3 (15-20 km)</span><span>+3.00 €</span></div>
+        <div class="legend-row" style="background:#e056fd;"><span>Zone 4 (20-25 km)</span><span>+4.50 €</span></div>
+        <div class="legend-row" style="background:#d63031;"><span>Zone 5 (25-30 km)</span><span>+6.00 €</span></div>
+        <div class="legend-row" style="background:#636e72;"><span>Hors Zone (>30 km)</span><span>+6.00 €</span></div>
+    </div>
+    """, unsafe_allow_html=True)
+
 # =========================================================
-# 🗺️ CARTE & LÉGENDE
+# 🗺️ CARTE (Style "Voyager")
 # =========================================================
 
-# 1. Configuration HTML de la légende
-# Ce bloc HTML/CSS va venir se superposer à la carte
-LEGEND_HTML = """
-<style>
-    .map-overlay {
-        position: relative;
-        width: 100%;
-        top: -20px; /* Remonte un peu pour coller à la carte */
-        height: 0; /* Ne prend pas de place dans le flux */
-        z-index: 999;
-        pointer-events: none; /* Laisse passer les clics */
-    }
-    .legend-box {
-        position: absolute;
-        bottom: 40px;
-        left: 20px;
-        background: rgba(255, 255, 255, 0.9);
-        padding: 15px;
-        border-radius: 10px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        font-family: sans-serif;
-        pointer-events: auto; /* Réactive les clics sur la légende */
-        backdrop-filter: blur(4px);
-        border: 1px solid #eee;
-        min-width: 160px;
-    }
-    .legend-title {
-        font-weight: bold;
-        font-size: 14px;
-        margin-bottom: 8px;
-        color: #333;
-    }
-    .legend-item {
-        display: flex;
-        align-items: center;
-        margin-bottom: 4px;
-        font-size: 12px;
-        color: #555;
-    }
-    .color-dot {
-        width: 15px;
-        height: 15px;
-        border-radius: 4px;
-        margin-right: 8px;
-    }
-</style>
-<div class="
+tiles_url = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'
+tiles_attr = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+
+m = folium.Map(location=HOME_COORDS, zoom_start=11, tiles=tiles_url, attr=tiles_attr)
+
+# Affichage des Zones (Couleurs distinctes + Transparence 10%)
+iso_data = get_isochrones()
+if iso_data:
+    def style_zones(feature):
+        val = feature['properties']['value']
+        col = "#636e72"
+        if val <= 10000: col = "#00b894"   # Vert
+        elif val <= 15000: col = "#0984e3" # Bleu
+        elif val <= 20000: col = "#fdcb6e" # Jaune
+        elif val <= 25000: col = "#e056fd" # Violet
+        elif val <= 30000: col = "#d63031" # Rouge
+        
+        return { 
+            'fillColor': col, 
+            'color': col, 
+            'weight': 2, 
+            'fillOpacity': 0.1, 
+            'opacity': 0.6,
+            'interactive': False 
+        }
+    folium.GeoJson(iso_data, style_function=style_zones).add_to(m)
+
+# Marqueur Maison (Siège)
+folium.Marker(
+    HOME_COORDS, 
+    popup="Siège Delepine", 
+    icon=folium.Icon(color="black", icon="home", prefix="fa")
+).add_to(m)
+
+# Trajet (Ligne noire)
+if st.session_state.route_data:
+    folium.PolyLine(
+        locations=st.session_state.route_data['geometry'], 
+        color="#2d3436", weight=5, opacity=0.8
+    ).add_to(m)
+    folium.Marker(
+        st.session_state.last_coords, 
+        icon=folium.Icon(color="blue", icon="user", prefix="fa")
+    ).add_to(m)
+
+# Interactivité Clic
+map_output = st_folium(m, width="100%", height=700)
+
+if map_output['last_clicked']:
+    clicked_lat = map_output['last_clicked']['lat']
+    clicked_lon = map_output['last_clicked']['lng']
+    
+    is_new = False
+    if st.session_state.last_coords is None:
+        is_new = True
+    elif abs(st.session_state.last_coords[0] - clicked_lat) > 0.0001:
+        is_new = True
+        
+    if is_new:
+        st.session_state.last_coords = [clicked_lat, clicked_lon]
+        st.session_state.route_data = get_route(clicked_lat, clicked_lon)
+        st.rerun()
