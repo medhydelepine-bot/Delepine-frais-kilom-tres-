@@ -6,7 +6,7 @@ import openrouteservice
 # =========================================================
 # 🔑 CONFIGURATION
 # =========================================================
-# Clé API restaurée
+# Clé API conservée telle quelle
 ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjI5Yjg3NDA2NjI1NzRhNjFhNzA0ZmZjMTg2Nzc5ZmMyIiwiaCI6Im11cm11cjY0In0="
 
 # Coordonnées EXACTES de votre maison (Mises à jour)
@@ -15,9 +15,16 @@ HOME_COORDS = [50.414787, 3.056332]
 
 st.set_page_config(page_title="Delepine Services", page_icon="🏠", layout="wide")
 
-# --- CSS (Design) ---
+# --- CSS (Design & Largeur Sidebar) ---
 st.markdown("""
     <style>
+    /* ⬇️ C'EST ICI QU'ON ÉLARGIT LA BARRE LATÉRALE */
+    [data-testid="stSidebar"] {
+        min-width: 450px;
+        max-width: 450px;
+    }
+    
+    /* Le reste du design reste inchangé */
     .price-box {
         background-color: #ffffff;
         padding: 20px;
