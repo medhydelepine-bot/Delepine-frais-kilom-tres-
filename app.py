@@ -4,19 +4,18 @@ from streamlit_folium import st_folium
 import openrouteservice
 
 # =========================================================
-# 🔑 CONFIGURATION - À REMPLIR OBLIGATOIREMENT
+# 🔑 CONFIGURATION
 # =========================================================
-# Collez votre clé API OpenRouteService ici
+# Collez votre clé API ci-dessous entre les guillemets
 ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjI5Yjg3NDA2NjI1NzRhNjFhNzA0ZmZjMTg2Nzc5ZmMyIiwiaCI6Im11cm11cjY0In0="
 
 # Coordonnées du siège (Auby)
-HOME_COORDS = [50.414787, 3.056332]
+HOME_COORDS = [50.4137, 3.0568]
 # =========================================================
 
-# Configuration de la page
 st.set_page_config(page_title="Delepine Services", page_icon="🏠", layout="wide")
 
-# --- CSS PERSONNALISÉ (Pour le look) ---
+# --- CSS ---
 st.markdown("""
     <style>
     .price-box {
@@ -55,7 +54,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# Initialisation du client API
+# --- CLIENT API ---
 client = None
 if ORS_API_KEY and ORS_API_KEY != "VOTRE_CLE_API_ICI":
     try:
@@ -63,13 +62,13 @@ if ORS_API_KEY and ORS_API_KEY != "VOTRE_CLE_API_ICI":
     except:
         st.error("Erreur de connexion API")
 
-# --- GESTION DE L'ÉTAT ---
+# --- ETAT ---
 if 'route_data' not in st.session_state:
     st.session_state.route_data = None
 if 'last_coords' not in st.session_state:
     st.session_state.last_coords = None
 
-# --- FONCTION CALCUL PRIX ---
+# --- FONCTIONS ---
 def calculate_price_tier(km):
     base_price = 25.00
     fee = 0
@@ -77,51 +76,32 @@ def calculate_price_tier(km):
     label = "HORS ZONE"
     
     if km <= 10:
-        fee = 0
-        color = "#2ecc71"
-        label = "Zone 1 (Gratuit)"
+        fee = 0; color = "#2ecc71"; label = "Zone 1 (Gratuit)"
     elif km <= 15:
-        fee = 1.50
-        color = "#f1c40f"
-        label = "Zone 2"
+        fee = 1.50; color = "#f1c40f"; label = "Zone 2"
     elif km <= 20:
-        fee = 3.00
-        color = "#e67e22"
-        label = "Zone 3"
+        fee = 3.00; color = "#e67e22"; label = "Zone 3"
     elif km <= 25:
-        fee = 4.50
-        color = "#d35400"
-        label = "Zone 4"
+        fee = 4.50; color = "#d35400"; label = "Zone 4"
     elif km <= 30:
-        fee = 6.00
-        color = "#c0392b"
-        label = "Zone 5"
+        fee = 6.00; color = "#c0392b"; label = "Zone 5"
     else:
-        fee = 6.00 
-        color = "#7f8c8d"
-        label = "Hors Zone (>30km)"
+        fee = 6.00; color = "#7f8c8d"; label = "Hors Zone (>30km)"
         
     return { "total": base_price + fee, "fee": fee, "color": color, "label": label }
 
-# --- FONCTION CACHÉE POUR LES ZONES (ISOCHRONES) ---
 @st.cache_data
 def get_isochrones():
     if not client: return None
     try:
-        # Note: l'API prend [lon, lat]
-        iso = client.isochrones(
+        return client.isochrones(
             locations=[[HOME_COORDS[1], HOME_COORDS[0]]],
             range=[30000, 25000, 20000, 15000, 10000],
-            interval=5000,
-            range_type="distance",
-            units="m",
-            smoothing=5
+            range_type="distance", units="m", smoothing=5
         )
-        return iso
     except:
         return None
 
-# --- FONCTION ITINÉRAIRE ---
 def get_route(dest_lat, dest_lon):
     if not client: return None
     try:
@@ -131,20 +111,17 @@ def get_route(dest_lat, dest_lon):
         dist_km = round(summary['distance'] / 1000, 1)
         duration_min = round(summary['duration'] / 60)
         geometry = routes['features'][0]['geometry']['coordinates']
-        decoded_geom = [(lat, lon) for lon, lat in geometry] # Inversion pour Folium
-        
-        return {
-            "dist_km": dist_km,
-            "duration_min": duration_min,
-            "geometry": decoded_geom,
-            "price_info": calculate_price_tier(dist_km)
+        decoded_geom = [(lat, lon) for lon, lat in geometry]
+        return { 
+            "dist_km": dist_km, 
+            "duration_min": duration_min, 
+            "geometry": decoded_geom, 
+            "price_info": calculate_price_tier(dist_km) 
         }
     except:
         return None
 
-# =========================================================
-# 🖥️ INTERFACE (SIDEBAR)
-# =========================================================
+# --- SIDEBAR ---
 with st.sidebar:
     try:
         st.image("logo.png", width=140)
@@ -154,7 +131,6 @@ with st.sidebar:
     st.title("Delepine Services")
     st.caption("📍 Siège : 21 rue Paul Bert, 59950 Auby")
 
-    # Recherche
     address_input = st.text_input("Recherche adresse :")
     if st.button("Rechercher 🔍") and address_input and client:
         try:
@@ -166,16 +142,15 @@ with st.sidebar:
             else:
                 st.error("Adresse introuvable")
         except:
-            st.error("Erreur API")
+            st.error("Erreur Recherche")
 
     st.markdown("---")
 
-    # RESULTATS
     if st.session_state.route_data:
         data = st.session_state.route_data
         info = data['price_info']
         
-        html_card = f"""
+        st.markdown(f"""
         <div class="price-box" style="border-left-color: {info['color']};">
             <div class="zone-badge" style="background-color: {info['color']};">{info['label']}</div>
             <div>Total Prestation</div>
@@ -186,25 +161,20 @@ with st.sidebar:
                 <div class="info-row"><span>⛽ Supplément :</span> <b>{info['fee']:.2f} €</b></div>
             </div>
         </div>
-        """
-        st.markdown(html_card, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
     else:
         st.info("👈 Entrez une adresse ou cliquez sur la carte.")
 
-# =========================================================
-# 🗺️ CARTE (Maintenant avec style "Vif/Ludique")
-# =========================================================
+# --- CARTE ---
+tiles_url = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}'
+tiles_attr = 'Tiles &copy; Esri'
 
-# ICI : On utilise les tuiles 'Esri WorldStreetMap' pour avoir le look coloré
-attr = 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
-tiles = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}'
+m = folium.Map(location=HOME_COORDS, zoom_start=10, tiles=tiles_url, attr=tiles_attr)
 
-m = folium.Map(location=HOME_COORDS, zoom_start=10, tiles=tiles, attr=attr)
-
-# 1. Ajout des Zones
+# Zones
 iso_data = get_isochrones()
 if iso_data:
-    def style_function(feature):
+    def style_zones(feature):
         val = feature['properties']['value']
         col = "#c0392b"
         if val <= 10000: col = "#2ecc71"
@@ -212,10 +182,38 @@ if iso_data:
         elif val <= 20000: col = "#e67e22"
         elif val <= 25000: col = "#d35400"
         return { 'fillColor': col, 'color': col, 'weight': 1, 'fillOpacity': 0.15, 'interactive': False }
-    
-    folium.GeoJson(iso_data, style_function=style_function).add_to(m)
+    folium.GeoJson(iso_data, style_function=style_zones).add_to(m)
 
-# 2. Marqueur Domicile
+# Marqueurs et Trajet (Code corrigé ici pour éviter l'erreur)
 folium.Marker(
     HOME_COORDS, 
-    popup="
+    popup="Siège Delepine", 
+    icon=folium.Icon(color="black", icon="home", prefix="fa")
+).add_to(m)
+
+if st.session_state.route_data:
+    folium.PolyLine(
+        locations=st.session_state.route_data['geometry'], 
+        color="#2c3e50", weight=6, opacity=0.9
+    ).add_to(m)
+    folium.Marker(
+        st.session_state.last_coords, 
+        icon=folium.Icon(color="blue", icon="user", prefix="fa")
+    ).add_to(m)
+
+map_output = st_folium(m, width="100%", height=700)
+
+if map_output['last_clicked']:
+    clicked_lat = map_output['last_clicked']['lat']
+    clicked_lon = map_output['last_clicked']['lng']
+    
+    is_new = False
+    if st.session_state.last_coords is None:
+        is_new = True
+    elif abs(st.session_state.last_coords[0] - clicked_lat) > 0.0001:
+        is_new = True
+        
+    if is_new:
+        st.session_state.last_coords = [clicked_lat, clicked_lon]
+        st.session_state.route_data = get_route(clicked_lat, clicked_lon)
+        st.rerun()
