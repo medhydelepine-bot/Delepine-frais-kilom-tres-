@@ -10,7 +10,7 @@ import openrouteservice
 ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjI5Yjg3NDA2NjI1NzRhNjFhNzA0ZmZjMTg2Nzc5ZmMyIiwiaCI6Im11cm11cjY0In0=" 
 
 # Coordonnées EXACTES de votre maison (Mises à jour)
-HOME_COORDS = [50.414771, 3.056326]
+HOME_COORDS = [50.414787, 3.056332]
 # =========================================================
 
 st.set_page_config(page_title="Delepine Services", page_icon="🏠", layout="wide")
