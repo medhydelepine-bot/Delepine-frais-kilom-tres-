@@ -6,127 +6,138 @@ import openrouteservice
 # =========================================================
 # 🔑 CONFIGURATION
 # =========================================================
-# ⚠️ COLLEZ VOTRE VRAIE CLÉ API CI-DESSOUS (celle qui commence par 5b...)
+# Ta clé API (intégrée)
 ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjI5Yjg3NDA2NjI1NzRhNjFhNzA0ZmZjMTg2Nzc5ZmMyIiwiaCI6Im11cm11cjY0In0="
 
 # Coordonnées EXACTES (Maison)
 HOME_COORDS = [50.414771, 3.056326]
-# =========================================================
 
-st.set_page_config(page_title="Delepine Domicile", page_icon="🏡", layout="wide")
+# Configuration de la page en mode "Large" pour prendre tout l'écran
+st.set_page_config(page_title="Delepine Domicile", page_icon="📍", layout="wide")
 
 # =========================================================
-# 🎨 DESIGN & CSS (Harmonisation Bleu & Homogène)
+# 🎨 DESIGN CSS "GOOGLE MAPS STYLE"
 # =========================================================
 st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap');
     
     html, body, [class*="css"] {
         font-family: 'Roboto', sans-serif;
-        color: #37474f;
     }
 
-    /* 1. SIDEBAR : Fond Bleu Clair */
+    /* 1. LA CARTE EN PLEIN ÉCRAN (Suppression des marges Streamlit) */
+    .block-container {
+        padding-top: 0rem !important;
+        padding-bottom: 0rem !important;
+        padding-left: 0rem !important;
+        padding-right: 0rem !important;
+        margin: 0 !important;
+    }
+    
+    /* On cache le header Streamlit et le footer pour l'immersion */
+    header {visibility: hidden;}
+    footer {visibility: hidden;}
+
+    /* 2. LE PANNEAU LATÉRAL (Transformé en Card Flottante) */
     [data-testid="stSidebar"] {
-        background-color: #e3f2fd; /* Bleu très pâle */
-        border-right: 1px solid #bbdefb;
+        background-color: white;
+        box-shadow: 2px 0 15px rgba(0,0,0,0.15); /* Ombre portée douce */
+        border-right: none;
+        padding-top: 20px;
+        z-index: 99999; /* Toujours au dessus */
+        width: 400px !important; /* Largeur fixe type Google Maps */
+    }
+    
+    /* Titre Application */
+    .app-title {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: #202124; /* Noir Google */
+        margin-bottom: 5px;
+    }
+    
+    .app-subtitle {
+        font-size: 0.9rem;
+        color: #5f6368; /* Gris Google */
+        margin-bottom: 20px;
     }
 
-    /* 2. BOUTONS : Style Homogène Bleu Pro */
-    div.stButton > button {
-        width: 100%;
-        background-color: #1976d2; /* Bleu Standard Material */
-        color: white;
-        border-radius: 8px;
-        padding: 12px 0;
-        font-weight: 500;
-        border: none;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-        transition: all 0.2s;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-    div.stButton > button:hover {
-        background-color: #1565c0;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-        transform: translateY(-1px);
-    }
-
-    /* 3. CHAMPS DE TEXTE : Propres et blancs */
+    /* 3. CHAMPS DE RECHERCHE (Style Material Design) */
     div[data-baseweb="input"] {
         background-color: white;
+        border: 1px solid #dadce0;
+        border-radius: 24px; /* Arrondi fort comme Google */
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    }
+    
+    /* 4. BOUTONS (Bleu Google) */
+    div.stButton > button {
+        background-color: #1a73e8;
+        color: white;
+        border-radius: 24px;
+        border: none;
+        padding: 10px 24px;
+        font-weight: 500;
+        text-transform: none; /* Pas de majuscules forcées */
+        box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        transition: all 0.2s;
+    }
+    div.stButton > button:hover {
+        background-color: #1557b0;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    }
+
+    /* 5. CARTES DE RÉSULTATS (Propres et blanches) */
+    .result-card {
+        background: #fff;
+        border: 1px solid #dadce0;
         border-radius: 8px;
-        border: 1px solid #90caf9;
-    }
-
-    /* 4. RESULTATS : Carte Blanche Épurée */
-    .main-card {
-        background: white;
-        border-radius: 12px;
-        padding: 20px;
-        text-align: center;
-        box-shadow: 0 4px 15px rgba(25, 118, 210, 0.08); /* Ombre bleutée légère */
-        margin-bottom: 20px;
-        border: 1px solid #e1f5fe;
-    }
-
-    /* Prix */
-    .price-display {
-        font-size: 3rem;
-        font-weight: 700;
-        color: #1976d2; /* Même bleu que les boutons */
-        margin: 5px 0;
-    }
-
-    /* Badges Zones uniformisés */
-    .zone-pill {
-        display: inline-block;
-        padding: 6px 16px;
-        border-radius: 4px;
-        background-color: #eceff1;
-        color: #455a64;
-        font-weight: 600;
-        font-size: 0.75rem;
-        text-transform: uppercase;
-        margin-bottom: 10px;
-    }
-
-    /* Grille stats */
-    .stats-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr 1fr;
-        gap: 8px;
+        padding: 16px;
         margin-top: 20px;
     }
-
-    .stat-box {
-        background: #f1f8e9; /* Fond très léger pour les stats */
-        padding: 10px 5px;
-        border-radius: 8px;
-        color: #37474f;
+    
+    .price-big {
+        color: #1a73e8;
+        font-size: 2.5rem;
+        font-weight: 400;
     }
     
-    .stat-icon { font-size: 1.2rem; display:block; margin-bottom:4px; }
-    .stat-val { font-weight: 700; font-size: 0.9rem; display:block; }
-    .stat-label { font-size: 0.65rem; text-transform: uppercase; opacity: 0.7; }
-    
+    .badge-zone {
+        background: #e8f0fe;
+        color: #1967d2;
+        padding: 4px 12px;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+    }
+
+    .stat-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 8px 0;
+        border-bottom: 1px solid #f1f3f4;
+        font-size: 0.9rem;
+        color: #3c4043;
+    }
+    .stat-row:last-child { border-bottom: none; }
+
     </style>
     """, unsafe_allow_html=True)
 
-# --- CLIENT API ---
+# --- CONFIG API ---
 client = None
 if ORS_API_KEY:
     try:
         client = openrouteservice.Client(key=ORS_API_KEY)
-    except:
-        pass
+    except: pass
 
 # --- ETAT ---
 if 'route_data' not in st.session_state: st.session_state.route_data = None
 if 'last_coords' not in st.session_state: st.session_state.last_coords = None
 
-# --- LOGIQUE ---
+# --- LOGIQUE MÉTIER ---
 def calculate_price_tier(km):
     base_price = 25.00
     fee = 0
@@ -166,112 +177,143 @@ def get_route(dest_lat, dest_lon):
     except: return None
 
 # =========================================================
-# 📱 INTERFACE SIDEBAR (Bleu Clair & Homogène)
+# 📱 BARRE LATÉRALE (Le Panneau de Contrôle)
 # =========================================================
 with st.sidebar:
-    # En-tête
-    col1, col2, col3 = st.columns([1,2,1])
-    with col2:
-        try:
-            st.image("logo.png", use_container_width=True)
-        except:
-            st.markdown("<h1 style='text-align:center;'>🏠</h1>", unsafe_allow_html=True)
-    
-    st.markdown("<h3 style='text-align: center; color: #1565c0; margin:0;'>Delepine Services</h3>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #546e7a; font-size: 0.8rem; margin-bottom: 20px;'>📍 Base : Auby</p>", unsafe_allow_html=True)
+    # Logo et Titre épurés
+    col_a, col_b = st.columns([1, 4])
+    with col_a:
+        try: st.image("logo.png", width=50)
+        except: st.write("📍")
+    with col_b:
+        st.markdown('<div class="app-title">Delepine</div>', unsafe_allow_html=True)
+        st.markdown('<div class="app-subtitle">Services à domicile • Auby</div>', unsafe_allow_html=True)
 
     # Recherche
-    with st.container():
-        addr = st.text_input("Nouvelle recherche", placeholder="Ex: Mairie de Douai")
-        if st.button("CALCULER") and addr and client:
-            try:
-                geo = client.pelias_search(text=addr, focus_point=[HOME_COORDS[1], HOME_COORDS[0]])
-                if geo['features']:
-                    c = geo['features'][0]['geometry']['coordinates']
-                    st.session_state.last_coords = [c[1], c[0]]
-                    st.session_state.route_data = get_route(c[1], c[0])
-                else:
-                    st.toast("Adresse introuvable", icon="❌")
-            except:
-                st.error("Erreur API")
+    addr = st.text_input("Saisissez une adresse", placeholder="Rechercher dans Google Maps...")
+    
+    if st.button("Itinéraire") and addr and client:
+        try:
+            geo = client.pelias_search(text=addr, focus_point=[HOME_COORDS[1], HOME_COORDS[0]])
+            if geo['features']:
+                c = geo['features'][0]['geometry']['coordinates']
+                st.session_state.last_coords = [c[1], c[0]]
+                st.session_state.route_data = get_route(c[1], c[0])
+            else:
+                st.error("Lieu introuvable")
+        except:
+            st.error("Erreur technique")
 
-    st.markdown("---")
-
-    # RESULTATS (Style Unifié)
+    # Résultats style "Fiche Lieu"
     if st.session_state.route_data:
         d = st.session_state.route_data
         i = d['price_info']
         
+        st.markdown("---")
         st.markdown(f"""
-        <div class="main-card">
-            <span class="zone-pill">{i['label']}</span>
-            <div class="price-display">{i['total']:.2f}€</div>
-            <div style="color: #78909c; font-size: 0.8rem;">TOTAL PRESTATION</div>
+        <div class="result-card">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span class="badge-zone">{i['label']}</span>
+                <span style="font-size:0.8rem; color:#5f6368;">TTC</span>
+            </div>
+            <div class="price-big">{i['total']:.2f} €</div>
             
-            <div class="stats-grid">
-                <div class="stat-box">
-                    <span class="stat-icon" style="color:#1976d2">⏱️</span>
-                    <span class="stat-val">{d['duration_min']}</span>
-                    <span class="stat-label">min</span>
+            <div style="margin-top:15px;">
+                <div class="stat-row">
+                    <span>🚗 Distance routière</span>
+                    <strong>{d['dist_km']} km</strong>
                 </div>
-                <div class="stat-box">
-                    <span class="stat-icon" style="color:#1976d2">📏</span>
-                    <span class="stat-val">{d['dist_km']}</span>
-                    <span class="stat-label">km</span>
+                <div class="stat-row">
+                    <span>⏱️ Durée estimée</span>
+                    <strong>{d['duration_min']} min</strong>
                 </div>
-                <div class="stat-box">
-                    <span class="stat-icon" style="color:#1976d2">⛽</span>
-                    <span class="stat-val">+{i['fee']}€</span>
-                    <span class="stat-label">frais</span>
+                <div class="stat-row">
+                    <span>⛽ Frais kilométriques</span>
+                    <strong>+{i['fee']} €</strong>
+                </div>
+                <div class="stat-row">
+                    <span>💼 Forfait base</span>
+                    <strong>25.00 €</strong>
                 </div>
             </div>
         </div>
         """, unsafe_allow_html=True)
-        
     else:
         st.markdown("""
-        <div style="text-align:center; padding: 20px; color: #607d8b; opacity: 0.7;">
-            <div style="font-size: 2rem; margin-bottom: 10px;">🗺️</div>
-            <p style="font-size: 0.9rem;">En attente d'une adresse...</p>
+        <div style="margin-top: 50px; text-align: center; color: #9aa0a6;">
+            <p>Sélectionnez un point sur la carte<br>ou cherchez une adresse.</p>
         </div>
         """, unsafe_allow_html=True)
 
 # =========================================================
-# 🗺️ CARTE (Toujours le style "Voyager" Doux)
+# 🗺️ LA CARTE (Fond d'écran interactif)
 # =========================================================
 
+# On utilise CartoDB Positron pour un fond très clair et propre, style "Maps"
 m = folium.Map(
     location=HOME_COORDS, 
-    zoom_start=11, 
-    tiles='https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', 
-    attr='CartoDB'
+    zoom_start=12, 
+    tiles='https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', 
+    attr='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    control_scale=True
 )
 
-# Zones (Couleurs distinctes pour la carte, transparence légère)
+# Zones (Couleurs Google : Rouge, Bleu, Jaune, Vert)
 iso = get_isochrones()
 if iso:
     def style_zones(feature):
         v = feature['properties']['value']
-        c = "#636e72"
-        if v <= 10000: c = "#00b894"   # Vert
-        elif v <= 15000: c = "#0984e3" # Bleu
-        elif v <= 20000: c = "#fdcb6e" # Jaune
-        elif v <= 25000: c = "#e056fd" # Violet
-        elif v <= 30000: c = "#d63031" # Rouge
+        c = "#9aa0a6"
+        # Palette Google Colors
+        if v <= 10000: c = "#34a853"   # Green
+        elif v <= 15000: c = "#4285f4" # Blue
+        elif v <= 20000: c = "#fbbc05" # Yellow
+        elif v <= 25000: c = "#ea4335" # Red
+        elif v <= 30000: c = "#b01c10" # Dark Red
         
-        return { 'fillColor': c, 'color': c, 'weight': 2, 'fillOpacity': 0.1, 'opacity': 0.5, 'interactive': False }
+        return { 
+            'fillColor': c, 
+            'color': c, 
+            'weight': 1, 
+            'fillOpacity': 0.15, # Léger pour voir les rues
+            'interactive': False 
+        }
     folium.GeoJson(iso, style_function=style_zones).add_to(m)
 
-folium.Marker(HOME_COORDS, tooltip="Siège", icon=folium.Icon(color="black", icon="home", prefix="fa")).add_to(m)
+# Marqueur Maison (Simple point bleu avec cercle blanc comme "Ma position")
+folium.CircleMarker(
+    location=HOME_COORDS,
+    radius=8,
+    color='#1a73e8',
+    fill=True,
+    fill_color='#4285f4',
+    fill_opacity=1,
+    popup="Siège"
+).add_to(m)
 
+# Trajet
 if st.session_state.route_data:
-    folium.PolyLine(st.session_state.route_data['geometry'], color="#263238", weight=5, opacity=0.8).add_to(m)
-    folium.Marker(st.session_state.last_coords, icon=folium.Icon(color="blue", icon="user", prefix="fa")).add_to(m)
+    folium.PolyLine(
+        st.session_state.route_data['geometry'], 
+        color="#1a73e8", # Bleu itinéraire Google
+        weight=6, 
+        opacity=0.8
+    ).add_to(m)
+    
+    # Marqueur Arrivée (Pin Rouge Classique)
+    folium.Marker(
+        st.session_state.last_coords, 
+        icon=folium.Icon(color="red", icon="map-marker", prefix="fa")
+    ).add_to(m)
 
-out = st_folium(m, width="100%", height=750)
+# Rendu de la carte en PLEIN ÉCRAN
+# Note : on force la hauteur à 100vh (hauteur de l'écran)
+out = st_folium(m, width="100%", height=1000) 
 
+# Gestion du Clic sur la carte
 if out['last_clicked']:
     clat, clon = out['last_clicked']['lat'], out['last_clicked']['lng']
+    # Anti-rebond
     same = False
     if st.session_state.last_coords and abs(st.session_state.last_coords[0] - clat) < 0.0001: same = True
     
