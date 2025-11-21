@@ -6,16 +6,16 @@ import openrouteservice
 # =========================================================
 # 🔑 CONFIGURATION
 # =========================================================
-# Collez votre clé API entre les guillemets ci-dessous
+# ⚠️ N'OUBLIEZ PAS DE COLLER VOTRE CLÉ API CI-DESSOUS
 ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjI5Yjg3NDA2NjI1NzRhNjFhNzA0ZmZjMTg2Nzc5ZmMyIiwiaCI6Im11cm11cjY0In0="
 
-# Coordonnées du siège (Auby)
-HOME_COORDS = [50.4137, 3.0568]
+# Coordonnées EXACTES de votre maison (Mises à jour)
+HOME_COORDS = [50.414771, 3.056326]
 # =========================================================
 
 st.set_page_config(page_title="Delepine Services", page_icon="🏠", layout="wide")
 
-# --- CSS (Style visuel) ---
+# --- CSS (Design) ---
 st.markdown("""
     <style>
     .price-box {
@@ -55,7 +55,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- CLIENT API ---
+# --- CONNEXION API ---
 client = None
 if ORS_API_KEY and ORS_API_KEY != "VOTRE_CLE_API_ICI":
     try:
@@ -63,41 +63,39 @@ if ORS_API_KEY and ORS_API_KEY != "VOTRE_CLE_API_ICI":
     except:
         st.error("Erreur de connexion API")
 
-# --- MEMOIRE (Session State) ---
+# --- MEMOIRE DU PROGRAMME ---
 if 'route_data' not in st.session_state:
     st.session_state.route_data = None
 if 'last_coords' not in st.session_state:
     st.session_state.last_coords = None
 
-# --- CALCUL DU PRIX ET COULEURS ---
+# --- FONCTIONS DE CALCUL ---
 def calculate_price_tier(km):
     base_price = 25.00
     fee = 0
-    # J'utilise ici les mêmes couleurs que sur la carte pour la cohérence
     color = "#7f8c8d" 
     label = "HORS ZONE"
     
+    # Couleurs des badges (cohérentes avec la carte)
     if km <= 10:
-        fee = 0; color = "#00b894"; label = "Zone 1 (Gratuit)" # Vert Menthe
+        fee = 0; color = "#00b894"; label = "Zone 1 (Gratuit)"
     elif km <= 15:
-        fee = 1.50; color = "#0984e3"; label = "Zone 2 (+1.50€)" # Bleu Vif
+        fee = 1.50; color = "#0984e3"; label = "Zone 2 (+1.50€)"
     elif km <= 20:
-        fee = 3.00; color = "#fdcb6e"; label = "Zone 3 (+3.00€)" # Jaune Moutarde
+        fee = 3.00; color = "#fdcb6e"; label = "Zone 3 (+3.00€)"
     elif km <= 25:
-        fee = 4.50; color = "#e056fd"; label = "Zone 4 (+4.50€)" # Violet/Rose
+        fee = 4.50; color = "#e056fd"; label = "Zone 4 (+4.50€)"
     elif km <= 30:
-        fee = 6.00; color = "#d63031"; label = "Zone 5 (+6.00€)" # Rouge
+        fee = 6.00; color = "#d63031"; label = "Zone 5 (+6.00€)"
     else:
         fee = 6.00; color = "#636e72"; label = "Hors Zone (>30km)"
         
     return { "total": base_price + fee, "fee": fee, "color": color, "label": label }
 
-# --- RECUPERATION DES ZONES (ISOCHRONES) ---
 @st.cache_data
 def get_isochrones():
     if not client: return None
     try:
-        # On demande les 5 zones d'un coup
         return client.isochrones(
             locations=[[HOME_COORDS[1], HOME_COORDS[0]]],
             range=[30000, 25000, 20000, 15000, 10000],
@@ -106,7 +104,6 @@ def get_isochrones():
     except:
         return None
 
-# --- CALCUL ITINERAIRE ---
 def get_route(dest_lat, dest_lon):
     if not client: return None
     try:
@@ -136,9 +133,9 @@ with st.sidebar:
         st.warning("⚠️ Image 'logo.png' introuvable")
 
     st.title("Delepine Services")
-    st.caption("📍 Siège : 21 rue Paul Bert, 59950 Auby")
+    st.caption("📍 Siège : Auby (Maison)")
 
-    # Recherche
+    # Champ de recherche
     address_input = st.text_input("Adresse client :")
     col1, col2 = st.columns([1,2])
     with col1:
@@ -152,13 +149,13 @@ with st.sidebar:
                 st.session_state.last_coords = [coords[1], coords[0]]
                 st.session_state.route_data = get_route(coords[1], coords[0])
             else:
-                st.error("Introuvable")
+                st.error("Adresse introuvable")
         except:
-            st.error("Erreur")
+            st.error("Erreur de recherche")
 
     st.markdown("---")
 
-    # Affichage du prix
+    # Affichage Résultats
     if st.session_state.route_data:
         data = st.session_state.route_data
         info = data['price_info']
@@ -176,59 +173,60 @@ with st.sidebar:
         </div>
         """, unsafe_allow_html=True)
     else:
-        st.info("👈 Indiquez une adresse ou cliquez sur la carte.")
+        st.info("👈 Entrez une adresse ou cliquez sur la carte.")
 
 # =========================================================
-# 🗺️ CARTE (COULEURS VIVES + TRANSPARENCE)
+# 🗺️ CARTE (Style "Voyager" : Doux et Moderne)
 # =========================================================
 
-# Fond de carte Esri (Rues bien visibles)
-tiles_url = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}'
-tiles_attr = 'Tiles &copy; Esri'
-m = folium.Map(location=HOME_COORDS, zoom_start=10, tiles=tiles_url, attr=tiles_attr)
+# Changement ici : On utilise le style "CartoDB Voyager"
+# C'est coloré mais pastel (moins agressif que Esri)
+tiles_url = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'
+tiles_attr = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
 
-# Affichage des Zones avec COULEURS DISTINCTES et TRANSPARENCE FORTE
+m = folium.Map(location=HOME_COORDS, zoom_start=11, tiles=tiles_url, attr=tiles_attr)
+
+# Affichage des Zones (Couleurs distinctes + Transparence 10%)
 iso_data = get_isochrones()
 if iso_data:
     def style_zones(feature):
         val = feature['properties']['value']
-        # Définition des couleurs
-        col = "#636e72" # Gris par défaut
-        if val <= 10000: col = "#00b894"   # Zone 1: Vert Menthe
-        elif val <= 15000: col = "#0984e3" # Zone 2: Bleu
-        elif val <= 20000: col = "#fdcb6e" # Zone 3: Jaune
-        elif val <= 25000: col = "#e056fd" # Zone 4: Violet
-        elif val <= 30000: col = "#d63031" # Zone 5: Rouge
+        col = "#636e72"
+        if val <= 10000: col = "#00b894"   # Vert
+        elif val <= 15000: col = "#0984e3" # Bleu
+        elif val <= 20000: col = "#fdcb6e" # Jaune
+        elif val <= 25000: col = "#e056fd" # Violet
+        elif val <= 30000: col = "#d63031" # Rouge
         
         return { 
             'fillColor': col, 
-            'color': col,       # Couleur de la bordure
-            'weight': 2,        # Bordure un peu plus épaisse pour bien voir la limite
-            'fillOpacity': 0.1, # <--- ICI : 0.1 = Très transparent (on voit bien la carte)
-            'opacity': 0.8,     # La bordure reste bien visible
+            'color': col, 
+            'weight': 2, 
+            'fillOpacity': 0.1, # Transparence très légère
+            'opacity': 0.6,
             'interactive': False 
         }
     folium.GeoJson(iso_data, style_function=style_zones).add_to(m)
 
-# Marqueur Siège
+# Marqueur Maison (Siège)
 folium.Marker(
     HOME_COORDS, 
     popup="Siège Delepine", 
     icon=folium.Icon(color="black", icon="home", prefix="fa")
 ).add_to(m)
 
-# Trajet (Ligne noire bien contrastée)
+# Trajet (Ligne noire)
 if st.session_state.route_data:
     folium.PolyLine(
         locations=st.session_state.route_data['geometry'], 
-        color="#2d3436", weight=5, opacity=1
+        color="#2d3436", weight=5, opacity=0.8
     ).add_to(m)
     folium.Marker(
         st.session_state.last_coords, 
         icon=folium.Icon(color="blue", icon="user", prefix="fa")
     ).add_to(m)
 
-# Gestion du clic
+# Interactivité Clic
 map_output = st_folium(m, width="100%", height=700)
 
 if map_output['last_clicked']:
