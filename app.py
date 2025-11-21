@@ -6,18 +6,22 @@ import openrouteservice
 # =========================================================
 # 🔑 CONFIGURATION
 # =========================================================
-# ⚠️ N'OUBLIEZ PAS DE COLLER VOTRE CLÉ API CI-DESSOUS
+# ⚠️ REMPLACEZ PAR VOTRE VRAIE CLÉ API (Commence par 5b3...) ⚠️
 ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjI5Yjg3NDA2NjI1NzRhNjFhNzA0ZmZjMTg2Nzc5ZmMyIiwiaCI6Im11cm11cjY0In0=" 
 
-# Coordonnées EXACTES de votre maison (Mises à jour)
+# Coordonnées EXACTES de votre maison (Auby)
 HOME_COORDS = [50.414787, 3.056332]
+
 # =========================================================
 
 st.set_page_config(page_title="Delepine Services", page_icon="🏠", layout="wide")
 
-# --- CSS (Design) ---
+# --- CSS (Design Global) ---
 st.markdown("""
     <style>
+    .main .block-container {
+        padding-top: 2rem; /* Un peu moins d'espace en haut */
+    }
     .price-box {
         background-color: #ffffff;
         padding: 20px;
@@ -57,11 +61,14 @@ st.markdown("""
 
 # --- CONNEXION API ---
 client = None
-if ORS_API_KEY and ORS_API_KEY != "VOTRE_CLE_API_ICI":
+if ORS_API_KEY and ORS_API_KEY != "VOTRE_CLE_API_ICI" and not ORS_API_KEY.startswith("eyJ"):
     try:
         client = openrouteservice.Client(key=ORS_API_KEY)
-    except:
-        st.error("Erreur de connexion API")
+    except Exception as e:
+        st.error(f"Erreur de connexion API : {e}")
+elif ORS_API_KEY.startswith("eyJ"):
+     st.error("⚠️ Format de clé API incorrect. Utilisez la clé standard (commençant par '5b3...')")
+
 
 # --- MEMOIRE DU PROGRAMME ---
 if 'route_data' not in st.session_state:
@@ -76,7 +83,7 @@ def calculate_price_tier(km):
     color = "#7f8c8d" 
     label = "HORS ZONE"
     
-    # Couleurs des badges (cohérentes avec la carte)
+    # Couleurs des badges (DOIVENT MATCHER LA LÉGENDE)
     if km <= 10:
         fee = 0; color = "#00b894"; label = "Zone 1 (Gratuit)"
     elif km <= 15:
@@ -101,7 +108,8 @@ def get_isochrones():
             range=[30000, 25000, 20000, 15000, 10000],
             range_type="distance", units="m", smoothing=5
         )
-    except:
+    except Exception as e:
+        # st.warning(f"Isochrones indisponibles: {e}")
         return None
 
 def get_route(dest_lat, dest_lon):
@@ -120,7 +128,8 @@ def get_route(dest_lat, dest_lon):
             "geometry": decoded_geom, 
             "price_info": calculate_price_tier(dist_km) 
         }
-    except:
+    except Exception as e:
+        st.error(f"Erreur lors du calcul d'itinéraire : {e}")
         return None
 
 # =========================================================
@@ -130,9 +139,8 @@ with st.sidebar:
     try:
         st.image("logo.png", width=140)
     except:
-        st.warning("⚠️ Image 'logo.png' introuvable")
+        st.markdown("## 🏠 Delepine Services")
 
-    st.title("Delepine Services")
     st.caption("📍 Siège : Auby (Maison)")
 
     # Champ de recherche
@@ -148,10 +156,11 @@ with st.sidebar:
                 coords = geocode['features'][0]['geometry']['coordinates']
                 st.session_state.last_coords = [coords[1], coords[0]]
                 st.session_state.route_data = get_route(coords[1], coords[0])
+                st.rerun()
             else:
                 st.error("Adresse introuvable")
-        except:
-            st.error("Erreur de recherche")
+        except Exception as e:
+            st.error(f"Erreur de recherche: {e}")
 
     st.markdown("---")
 
@@ -176,17 +185,82 @@ with st.sidebar:
         st.info("👈 Entrez une adresse ou cliquez sur la carte.")
 
 # =========================================================
-# 🗺️ CARTE (Style "Voyager" : Doux et Moderne)
+# 🗺️ CARTE (Style "Voyager") & LÉGENDE
 # =========================================================
 
-# Changement ici : On utilise le style "CartoDB Voyager"
-# C'est coloré mais pastel (moins agressif que Esri)
+# --- DÉFINITION DE LA LÉGENDE HTML/CSS ---
+LEGEND_HTML = """
+<style>
+    /* Conteneur qui se superpose à la carte */
+    .map-overlay-container {
+        position: relative;
+        width: 100%;
+        height: 0; /* Astuce pour ne pas prendre de place dans le flux */
+        top: -10px; /* Remonte légèrement pour coller au bas de la carte */
+        z-index: 9999; /* S'assure d'être au-dessus */
+        pointer-events: none; /* Laisse passer les clics sauf sur la légende elle-même */
+    }
+    /* La boîte de légende elle-même */
+    .legend-box {
+        position: absolute;
+        bottom: 30px;    /* Position depuis le bas */
+        left: 30px;      /* Position depuis la gauche */
+        background-color: rgba(255, 255, 255, 0.90); /* Fond blanc semi-transparent */
+        padding: 15px 20px;
+        border-radius: 10px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+        font-family: sans-serif;
+        pointer-events: auto; /* Réactive les clics sur la légende */
+        user-select: none;
+        backdrop-filter: blur(5px); /* Effet de flou d'arrière-plan moderne */
+        border: 1px solid rgba(0,0,0,0.05);
+    }
+    .legend-box h4 {
+        margin: 0 0 12px 0;
+        font-size: 0.95rem;
+        color: #2d3436;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .legend-item {
+        display: flex;
+        align-items: center;
+        margin-bottom: 6px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: #555;
+    }
+    /* Les petits carrés de couleur */
+    .color-swatch {
+        width: 18px;
+        height: 18px;
+        margin-right: 10px;
+        border-radius: 4px;
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.1); /* Légère bordure interne */
+    }
+</style>
+
+<div class="map-overlay-container">
+    <div class="legend-box">
+        <h4>Zones & Suppléments</h4>
+        <div class="legend-item"><div class="color-swatch" style="background:#00b894;"></div>Zone 1 (Gratuit)</div>
+        <div class="legend-item"><div class="color-swatch" style="background:#0984e3;"></div>Zone 2 (+1.50€)</div>
+        <div class="legend-item"><div class="color-swatch" style="background:#fdcb6e;"></div>Zone 3 (+3.00€)</div>
+        <div class="legend-item"><div class="color-swatch" style="background:#e056fd;"></div>Zone 4 (+4.50€)</div>
+        <div class="legend-item"><div class="color-swatch" style="background:#d63031;"></div>Zone 5 (+6.00€)</div>
+        <div class="legend-item"><div class="color-swatch" style="background:#636e72;"></div>Hors Zone</div>
+    </div>
+</div>
+"""
+
+# --- CRÉATION DE LA CARTE ---
 tiles_url = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'
 tiles_attr = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
 
 m = folium.Map(location=HOME_COORDS, zoom_start=11, tiles=tiles_url, attr=tiles_attr)
 
-# Affichage des Zones (Couleurs distinctes + Transparence 10%)
+# Affichage des Zones
 iso_data = get_isochrones()
 if iso_data:
     def style_zones(feature):
@@ -201,21 +275,21 @@ if iso_data:
         return { 
             'fillColor': col, 
             'color': col, 
-            'weight': 2, 
-            'fillOpacity': 0.1, # Transparence très légère
-            'opacity': 0.6,
+            'weight': 1, # Bordure plus fine
+            'fillOpacity': 0.15, # Un peu plus opaque pour mieux voir les couleurs
+            'opacity': 0.4,
             'interactive': False 
         }
     folium.GeoJson(iso_data, style_function=style_zones).add_to(m)
 
-# Marqueur Maison (Siège)
+# Marqueur Maison
 folium.Marker(
     HOME_COORDS, 
     popup="Siège Delepine", 
     icon=folium.Icon(color="black", icon="home", prefix="fa")
 ).add_to(m)
 
-# Trajet (Ligne noire)
+# Trajet
 if st.session_state.route_data:
     folium.PolyLine(
         locations=st.session_state.route_data['geometry'], 
@@ -226,9 +300,15 @@ if st.session_state.route_data:
         icon=folium.Icon(color="blue", icon="user", prefix="fa")
     ).add_to(m)
 
-# Interactivité Clic
+# --- AFFICHAGE CARTE ET LÉGENDE ---
+
+# 1. La carte
 map_output = st_folium(m, width="100%", height=700)
 
+# 2. La légende (injectée juste après pour se superposer)
+st.markdown(LEGEND_HTML, unsafe_allow_html=True)
+
+# --- INTERACTIVITÉ CLIC ---
 if map_output['last_clicked']:
     clicked_lat = map_output['last_clicked']['lat']
     clicked_lon = map_output['last_clicked']['lng']
