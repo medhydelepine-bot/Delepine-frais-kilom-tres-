@@ -69,6 +69,9 @@ st.markdown("""
         border-bottom: 1px dotted #eee;
         padding-bottom: 2px;
     }
+    
+    /* Petites icônes dans le CSS pour éviter les bugs d'affichage */
+    .icon-col { font-size: 1.1rem; margin-right: 5px; }
 
     /* 3. TABLEAU LÉGENDE */
     .legend-row {
@@ -192,19 +195,19 @@ with st.sidebar:
         data = st.session_state.route_data
         info = data['price_info']
         
+        # CORRECTION ICI : Le HTML est collé à gauche pour éviter le bug du cadre noir
         st.markdown(f"""
-        <div class="price-box" style="border-top-color: {info['color']};">
-            <div class="zone-badge" style="background-color: {info['color']};">{info['label']}</div>
-            <div style="color:#999; font-size:0.75rem; margin-top:5px;">TOTAL PRESTATION</div>
-            <div class="big-price" style="color: {info['color']};">{info['total']:.2f} €</div>
-            
-            <div class="info-container">
-                <div class="info-line"><span>⏱️ Temps</span> <b>{data['duration_min']} min</b></div>
-                <div class="info-line"><span>📏 Distance</span> <b>{data['dist_km']} km</b></div>
-                <div class="info-line"><span>⛽ Supplément</span> <b>{info['fee']:.2f} €</b></div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+<div class="price-box" style="border-top-color: {info['color']};">
+<div class="zone-badge" style="background-color: {info['color']};">{info['label']}</div>
+<div style="color:#999; font-size:0.75rem; margin-top:5px;">TOTAL PRESTATION</div>
+<div class="big-price" style="color: {info['color']};">{info['total']:.2f} €</div>
+<div class="info-container">
+<div class="info-line"><span>⏱️ Temps</span> <b>{data['duration_min']} min</b></div>
+<div class="info-line"><span>📏 Distance</span> <b>{data['dist_km']} km</b></div>
+<div class="info-line"><span>⛽ Supplément</span> <b>{info['fee']:.2f} €</b></div>
+</div>
+</div>
+""", unsafe_allow_html=True)
     else:
         st.info("👈 Indiquez une adresse ou cliquez sur la carte")
 
@@ -212,15 +215,15 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("<h5 style='text-align: center; margin-bottom: 15px;'>🏷️ Grille Tarifaire</h5>", unsafe_allow_html=True)
     st.markdown("""
-    <div style="width: 95%; margin: 0 auto;">
-        <div class="legend-row" style="background:#00b894;"><span>Zone 1 (0-10 km)</span><span>Gratuit</span></div>
-        <div class="legend-row" style="background:#0984e3;"><span>Zone 2 (10-15 km)</span><span>+1.50 €</span></div>
-        <div class="legend-row" style="background:#fdcb6e;"><span>Zone 3 (15-20 km)</span><span>+3.00 €</span></div>
-        <div class="legend-row" style="background:#e056fd;"><span>Zone 4 (20-25 km)</span><span>+4.50 €</span></div>
-        <div class="legend-row" style="background:#d63031;"><span>Zone 5 (25-30 km)</span><span>+6.00 €</span></div>
-        <div class="legend-row" style="background:#636e72;"><span>Hors Zone (>30 km)</span><span>+6.00 €</span></div>
-    </div>
-    """, unsafe_allow_html=True)
+<div style="width: 95%; margin: 0 auto;">
+<div class="legend-row" style="background:#00b894;"><span>Zone 1 (0-10 km)</span><span>Gratuit</span></div>
+<div class="legend-row" style="background:#0984e3;"><span>Zone 2 (10-15 km)</span><span>+1.50 €</span></div>
+<div class="legend-row" style="background:#fdcb6e;"><span>Zone 3 (15-20 km)</span><span>+3.00 €</span></div>
+<div class="legend-row" style="background:#e056fd;"><span>Zone 4 (20-25 km)</span><span>+4.50 €</span></div>
+<div class="legend-row" style="background:#d63031;"><span>Zone 5 (25-30 km)</span><span>+6.00 €</span></div>
+<div class="legend-row" style="background:#636e72;"><span>Hors Zone (>30 km)</span><span>+6.00 €</span></div>
+</div>
+""", unsafe_allow_html=True)
 
 # =========================================================
 # 🗺️ CARTE
