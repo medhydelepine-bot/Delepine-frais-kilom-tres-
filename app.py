@@ -1,15 +1,26 @@
 import streamlit as st
 import folium
 from streamlit_folium import st_folium
-import openrouteservice
+import requests
+import polyline  # Nécessaire pour décoder la géométrie OSRM
 
 # =========================================================
-# 🔑 CONFIGURATION
+# 🔑 CONFIGURATION (PLUS BESOIN DE CLE API !)
 # =========================================================
-ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjI5Yjg3NDA2NjI1NzRhNjFhNzA0ZmZjMTg2Nzc5ZmMyIiwiaCI6Im11cm11cjY0In0="
 
 # Coordonnées EXACTES de votre maison (Auby)
 HOME_COORDS = [50.414787, 3.056332]
+
+# Configuration des Zones (Couleur, Rayon en mètres, Label, Prix)
+# L'ordre est important : du plus GRAND au plus PETIT pour l'affichage des cercles
+ZONES_CONFIG = [
+    {"limit": 30, "radius": 30000, "price": 6.00, "color": "#d63031", "label": "Zone 5"},
+    {"limit": 25, "radius": 25000, "price": 4.50, "color": "#e056fd", "label": "Zone 4"},
+    {"limit": 20, "radius": 20000, "price": 3.00, "color": "#fdcb6e", "label": "Zone 3"},
+    {"limit": 15, "radius": 15000, "price": 1.50, "color": "#0984e3", "label": "Zone 2"},
+    {"limit": 10, "radius": 10000, "price": 0.00, "color": "#00b894", "label": "Zone 1"},
+]
+
 # =========================================================
 
 st.set_page_config(page_title="Delepine Services", page_icon="🏠", layout="wide")
@@ -17,13 +28,8 @@ st.set_page_config(page_title="Delepine Services", page_icon="🏠", layout="wid
 # --- CSS (Design Compact & Centré) ---
 st.markdown("""
     <style>
-    /* 1. LARGEUR & ESPACEMENT DU BANDEAU GAUCHE */
-    [data-testid="stSidebar"] {
-        min-width: 400px;
-        max-width: 400px;
-    }
+    [data-testid="stSidebar"] { min-width: 400px; max-width: 400px; }
     
-    /* 2. DESIGN DE LA BOITE DE PRIX */
     .price-box {
         background-color: #ffffff;
         padding: 15px;
@@ -35,70 +41,30 @@ st.markdown("""
         margin-bottom: 15px;
         margin-top: 10px;
     }
-    .big-price {
-        font-size: 38px;
-        font-weight: 800;
-        margin: 5px 0;
-    }
+    .big-price { font-size: 38px; font-weight: 800; margin: 5px 0; }
     .zone-badge {
-        display: inline-block;
-        padding: 5px 15px;
-        border-radius: 15px;
-        color: white;
-        font-weight: bold;
-        text-transform: uppercase;
-        font-size: 0.8rem;
-        letter-spacing: 1px;
-        margin-bottom: 5px;
+        display: inline-block; padding: 5px 15px; border-radius: 15px;
+        color: white; font-weight: bold; text-transform: uppercase;
+        font-size: 0.8rem; letter-spacing: 1px; margin-bottom: 5px;
     }
-    
-    /* Lignes d'infos centrées */
     .info-container {
-        margin-top: 10px;
-        font-size: 0.9rem;
-        color: #555;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 6px;
+        margin-top: 10px; font-size: 0.9rem; color: #555;
+        display: flex; flex-direction: column; align-items: center; gap: 6px;
     }
     .info-line {
-        display: flex;
-        justify-content: space-between;
-        width: 85%;
-        border-bottom: 1px dotted #eee;
-        padding-bottom: 2px;
+        display: flex; justify-content: space-between; width: 85%;
+        border-bottom: 1px dotted #eee; padding-bottom: 2px;
     }
-    
-    /* Petites icônes dans le CSS pour éviter les bugs d'affichage */
-    .icon-col { font-size: 1.1rem; margin-right: 5px; }
-
-    /* 3. TABLEAU LÉGENDE */
     .legend-row {
-        display: flex;
-        justify-content: space-between;
-        padding: 4px 12px;
-        margin-bottom: 3px;
-        border-radius: 4px;
-        color: white;
-        font-weight: 600;
-        font-size: 0.8rem;
-        align-items: center;
+        display: flex; justify-content: space-between; padding: 4px 12px;
+        margin-bottom: 3px; border-radius: 4px; color: white;
+        font-weight: 600; font-size: 0.8rem; align-items: center;
     }
-    
-    /* Centrage divers */
     div[data-testid="stImage"] { display: flex; justify-content: center; }
     h1, h2, h3 { text-align: center; }
     .stCaption { text-align: center; }
     </style>
     """, unsafe_allow_html=True)
-
-# --- CONNEXION API ---
-client = None
-try:
-    client = openrouteservice.Client(key=ORS_API_KEY)
-except:
-    st.error("Erreur connexion API")
 
 # --- MEMOIRE ---
 if 'route_data' not in st.session_state:
@@ -109,56 +75,75 @@ if 'last_coords' not in st.session_state:
 # --- CALCULS ---
 def calculate_price_tier(km):
     base_price = 25.00
-    fee = 0
-    color = "#7f8c8d" 
-    label = "HORS ZONE"
+    # Par défaut (Hors zone)
+    fee = 6.00
+    color = "#636e72"
+    label = "HORS ZONE (>30km)"
     
-    if km <= 10:
-        fee = 0; color = "#00b894"; label = "Zone 1 (Gratuit)"
-    elif km <= 15:
-        fee = 1.50; color = "#0984e3"; label = "Zone 2 (+1.50€)"
-    elif km <= 20:
-        fee = 3.00; color = "#fdcb6e"; label = "Zone 3 (+3.00€)"
-    elif km <= 25:
-        fee = 4.50; color = "#e056fd"; label = "Zone 4 (+4.50€)"
-    elif km <= 30:
-        fee = 6.00; color = "#d63031"; label = "Zone 5 (+6.00€)"
-    else:
-        fee = 6.00; color = "#636e72"; label = "Hors Zone (>30km)"
-        
+    # On vérifie les zones de la plus petite à la plus grande (logique inverse pour trouver la bonne)
+    # On trie la config par distance croissante pour la logique de prix
+    sorted_zones = sorted(ZONES_CONFIG, key=lambda x: x['limit'])
+    
+    found_zone = False
+    for zone in sorted_zones:
+        if km <= zone['limit']:
+            fee = zone['price']
+            color = zone['color']
+            label = f"{zone['label']} (+{fee}€)" if fee > 0 else f"{zone['label']} (Gratuit)"
+            found_zone = True
+            break
+            
     return { "total": base_price + fee, "fee": fee, "color": color, "label": label }
 
-@st.cache_data
-def get_isochrones():
-    if not client: return None
+def get_route_osrm(dest_lat, dest_lon):
+    # Utilisation de l'API publique OSRM (Gratuite, sans clé)
     try:
-        return client.isochrones(
-            locations=[[HOME_COORDS[1], HOME_COORDS[0]]],
-            range=[30000, 25000, 20000, 15000, 10000],
-            range_type="distance", units="m", smoothing=5
-        )
-    except:
-        return None
+        url = f"http://router.project-osrm.org/route/v1/driving/{HOME_COORDS[1]},{HOME_COORDS[0]};{dest_lon},{dest_lat}?overview=full&geometries=geojson"
+        r = requests.get(url, timeout=5)
+        if r.status_code == 200:
+            data = r.json()
+            if data['code'] == 'Ok':
+                route = data['routes'][0]
+                dist_km = round(route['distance'] / 1000, 1)
+                duration_min = round(route['duration'] / 60)
+                # Geometry GeoJSON direct
+                geometry = route['geometry']['coordinates']
+                # Inversion Longitude/Latitude pour Folium (GeoJSON est Lon,Lat -> Folium veut Lat,Lon)
+                decoded_geom = [(lat, lon) for lon, lat in geometry]
+                
+                return { 
+                    "dist_km": dist_km, 
+                    "duration_min": duration_min, 
+                    "geometry": decoded_geom, 
+                    "price_info": calculate_price_tier(dist_km) 
+                }
+    except Exception as e:
+        st.error(f"Erreur de calcul d'itinéraire : {e}")
+    return None
 
-def get_route(dest_lat, dest_lon):
-    if not client: return None
+def search_address_nominatim(address):
+    # Utilisation de Nominatim (OpenStreetMap Search) - Gratuit
+    url = "https://nominatim.openstreetmap.org/search"
+    params = {
+        "q": address,
+        "format": "json",
+        "limit": 1,
+        "countrycodes": "fr" # Limite à la France
+    }
+    headers = {'User-Agent': 'DelepineServicesApp/1.0'}
     try:
-        coords = [[HOME_COORDS[1], HOME_COORDS[0]], [dest_lon, dest_lat]]
-        routes = client.directions(coordinates=coords, profile='driving-car', format='geojson')
-        summary = routes['features'][0]['properties']['summary']
-        dist_km = round(summary['distance'] / 1000, 1)
-        duration_min = round(summary['duration'] / 60)
-        geometry = routes['features'][0]['geometry']['coordinates']
-        decoded_geom = [(lat, lon) for lon, lat in geometry]
-        return { "dist_km": dist_km, "duration_min": duration_min, "geometry": decoded_geom, "price_info": calculate_price_tier(dist_km) }
+        r = requests.get(url, params=params, headers=headers)
+        if r.status_code == 200 and len(r.json()) > 0:
+            res = r.json()[0]
+            return float(res['lat']), float(res['lon'])
     except:
         return None
+    return None
 
 # =========================================================
-# 🖥️ BARRE LATERALE (Design Centré)
+# 🖥️ BARRE LATERALE
 # =========================================================
 with st.sidebar:
-    # 1. Logo
     try:
         col_logo1, col_logo2, col_logo3 = st.columns([1, 2, 1])
         with col_logo2:
@@ -168,62 +153,65 @@ with st.sidebar:
 
     st.caption("📍 Siège : Auby (Maison)")
 
-    # 2. Recherche
+    # Recherche
     st.markdown("---")
     col_input, col_btn = st.columns([3, 1])
     with col_input:
-        address_input = st.text_input("Recherche", label_visibility="collapsed", placeholder="Adresse...")
+        address_input = st.text_input("Recherche", label_visibility="collapsed", placeholder="Adresse (Ville, Rue...)")
     with col_btn:
         search_btn = st.button("🔎", type="primary")
     
-    # LOGIQUE DE RECHERCHE
-    if search_btn and address_input and client:
-        try:
-            geocode = client.pelias_search(text=address_input, focus_point=[HOME_COORDS[1], HOME_COORDS[0]])
-            if geocode['features']:
-                coords = geocode['features'][0]['geometry']['coordinates']
-                st.session_state.last_coords = [coords[1], coords[0]]
-                st.session_state.route_data = get_route(coords[1], coords[0])
-                st.rerun() # <--- CRUCIAL : Recharge la page pour afficher le résultat
-            else:
-                st.error("Adresse introuvable")
-        except:
-            st.error("Erreur API")
+    if search_btn and address_input:
+        coords = search_address_nominatim(address_input)
+        if coords:
+            st.session_state.last_coords = [coords[0], coords[1]]
+            st.session_state.route_data = get_route_osrm(coords[0], coords[1])
+            st.rerun()
+        else:
+            st.error("Adresse introuvable")
 
-    # 3. Affichage Résultat (Prix)
+    # Affichage Résultat
     if st.session_state.route_data:
         data = st.session_state.route_data
         info = data['price_info']
         
-        # CORRECTION ICI : Le HTML est collé à gauche pour éviter le bug du cadre noir
         st.markdown(f"""
-<div class="price-box" style="border-top-color: {info['color']};">
-<div class="zone-badge" style="background-color: {info['color']};">{info['label']}</div>
-<div style="color:#999; font-size:0.75rem; margin-top:5px;">TOTAL PRESTATION</div>
-<div class="big-price" style="color: {info['color']};">{info['total']:.2f} €</div>
-<div class="info-container">
-<div class="info-line"><span>⏱️ Temps</span> <b>{data['duration_min']} min</b></div>
-<div class="info-line"><span>📏 Distance</span> <b>{data['dist_km']} km</b></div>
-<div class="info-line"><span>⛽ Supplément</span> <b>{info['fee']:.2f} €</b></div>
-</div>
-</div>
-""", unsafe_allow_html=True)
+        <div class="price-box" style="border-top-color: {info['color']};">
+            <div class="zone-badge" style="background-color: {info['color']};">{info['label']}</div>
+            <div style="color:#999; font-size:0.75rem; margin-top:5px;">TOTAL PRESTATION</div>
+            <div class="big-price" style="color: {info['color']};">{info['total']:.2f} €</div>
+            <div class="info-container">
+                <div class="info-line"><span>⏱️ Temps</span> <b>{data['duration_min']} min</b></div>
+                <div class="info-line"><span>📏 Distance</span> <b>{data['dist_km']} km</b></div>
+                <div class="info-line"><span>⛽ Supplément</span> <b>{info['fee']:.2f} €</b></div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
     else:
         st.info("👈 Indiquez une adresse ou cliquez sur la carte")
 
-    # 4. Tableau Tarifaire
+    # Tableau Tarifaire (Généré dynamiquement)
     st.markdown("---")
     st.markdown("<h5 style='text-align: center; margin-bottom: 15px;'>🏷️ Grille Tarifaire</h5>", unsafe_allow_html=True)
+    st.markdown('<div style="width: 95%; margin: 0 auto;">', unsafe_allow_html=True)
+    
+    # On affiche la légende triée par distance
+    for zone in sorted(ZONES_CONFIG, key=lambda x: x['limit']):
+        price_txt = "Gratuit" if zone['price'] == 0 else f"+{zone['price']:.2f} €"
+        dist_txt = f"{zone['limit']-5}-{zone['limit']} km" if zone['limit'] > 10 else f"0-{zone['limit']} km"
+        st.markdown(f"""
+        <div class="legend-row" style="background:{zone['color']};">
+            <span>{zone['label']} ({dist_txt})</span><span>{price_txt}</span>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # Hors zone manuel
     st.markdown("""
-<div style="width: 95%; margin: 0 auto;">
-<div class="legend-row" style="background:#00b894;"><span>Zone 1 (0-10 km)</span><span>Gratuit</span></div>
-<div class="legend-row" style="background:#0984e3;"><span>Zone 2 (10-15 km)</span><span>+1.50 €</span></div>
-<div class="legend-row" style="background:#fdcb6e;"><span>Zone 3 (15-20 km)</span><span>+3.00 €</span></div>
-<div class="legend-row" style="background:#e056fd;"><span>Zone 4 (20-25 km)</span><span>+4.50 €</span></div>
-<div class="legend-row" style="background:#d63031;"><span>Zone 5 (25-30 km)</span><span>+6.00 €</span></div>
-<div class="legend-row" style="background:#636e72;"><span>Hors Zone (>30 km)</span><span>+6.00 €</span></div>
-</div>
-""", unsafe_allow_html=True)
+        <div class="legend-row" style="background:#636e72;">
+            <span>Hors Zone (>30 km)</span><span>+6.00 €</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
 # =========================================================
 # 🗺️ CARTE
@@ -231,30 +219,48 @@ with st.sidebar:
 tiles_url = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'
 tiles_attr = '&copy; OSM contributors &copy; CARTO'
 
-m = folium.Map(location=HOME_COORDS, zoom_start=11, tiles=tiles_url, attr=tiles_attr)
+m = folium.Map(location=HOME_COORDS, zoom_start=10, tiles=tiles_url, attr=tiles_attr)
 
-iso_data = get_isochrones()
-if iso_data:
-    def style_zones(feature):
-        val = feature['properties']['value']
-        col = "#636e72"
-        if val <= 10000: col = "#00b894"
-        elif val <= 15000: col = "#0984e3"
-        elif val <= 20000: col = "#fdcb6e"
-        elif val <= 25000: col = "#e056fd"
-        elif val <= 30000: col = "#d63031"
-        
-        return { 'fillColor': col, 'color': col, 'weight': 2, 'fillOpacity': 0.1, 'opacity': 0.6, 'interactive': False }
-    folium.GeoJson(iso_data, style_function=style_zones).add_to(m)
+# 1. Dessiner les Zones (Cercles)
+# On dessine du plus grand au plus petit pour qu'ils soient tous visibles
+for zone in ZONES_CONFIG:
+    folium.Circle(
+        location=HOME_COORDS,
+        radius=zone['radius'],
+        color=zone['color'],
+        fill=True,
+        fill_color=zone['color'],
+        fill_opacity=0.08, # Très léger pour bien voir la carte
+        weight=1,
+        popup=f"{zone['label']} (+{zone['price']}€)"
+    ).add_to(m)
 
-folium.Marker(HOME_COORDS, popup="Siège", icon=folium.Icon(color="black", icon="home", prefix="fa")).add_to(m)
+# 2. Marqueur Maison
+folium.Marker(
+    HOME_COORDS, 
+    popup="<b>Siège Delepine</b>", 
+    tooltip="Siège",
+    icon=folium.Icon(color="black", icon="home", prefix="fa")
+).add_to(m)
 
+# 3. Tracé de la route si existante
 if st.session_state.route_data:
-    folium.PolyLine(locations=st.session_state.route_data['geometry'], color="#2d3436", weight=5, opacity=0.8).add_to(m)
-    folium.Marker(st.session_state.last_coords, icon=folium.Icon(color="blue", icon="user", prefix="fa")).add_to(m)
+    folium.PolyLine(
+        locations=st.session_state.route_data['geometry'], 
+        color="#2d3436", 
+        weight=4, 
+        opacity=0.8,
+        dash_array='10'
+    ).add_to(m)
+    
+    folium.Marker(
+        st.session_state.last_coords, 
+        icon=folium.Icon(color="red", icon="user", prefix="fa")
+    ).add_to(m)
 
 map_output = st_folium(m, width="100%", height=700)
 
+# 4. Gestion du Clic sur la carte
 if map_output['last_clicked']:
     clicked_lat = map_output['last_clicked']['lat']
     clicked_lon = map_output['last_clicked']['lng']
@@ -267,5 +273,5 @@ if map_output['last_clicked']:
         
     if is_new:
         st.session_state.last_coords = [clicked_lat, clicked_lon]
-        st.session_state.route_data = get_route(clicked_lat, clicked_lon)
+        st.session_state.route_data = get_route_osrm(clicked_lat, clicked_lon)
         st.rerun()
