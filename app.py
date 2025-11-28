@@ -2,123 +2,103 @@ import streamlit as st
 import folium
 from streamlit_folium import st_folium
 import requests
+import json
+import os
 
 # =========================================================
-# ⚙️ CONFIGURATION INTELLIGENTE
+# ⚙️ CONFIGURATION
 # =========================================================
 
 # Coordonnées EXACTES de votre maison (Auby)
 HOME_COORDS = [50.414787, 3.056332]
 
-# FACTEUR DE DÉTOUR (Astuce Pro)
-# 1.30 signifie qu'il faut rouler 13km pour s'éloigner de 10km à vol d'oiseau.
-# Cela permet d'avoir des cercles visuels qui correspondent à la réalité de la route.
-DETOUR_COEFF = 1.30 
+# Ta clé OpenRouteService (Utilisée juste UNE fois pour la mémoire)
+# J'ai remis celle de ton fichier d'origine.
+ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjI5Yjg3NDA2NjI1NzRhNjFhNzA0ZmZjMTg2Nzc5ZmMyIiwiaCI6Im11cm11cjY0In0="
 
-# Configuration des Zones
-# 'limit': La limite réelle payée (Route)
-# 'radius': Le cercle affiché (Vol d'oiseau ajusté pour correspondre à la route)
+# Configuration des Prix
 ZONES_CONFIG = [
-    {"limit": 30, "price": 6.00, "color": "#d63031", "label": "Zone 5"},
-    {"limit": 25, "price": 4.50, "color": "#e056fd", "label": "Zone 4"},
-    {"limit": 20, "price": 3.00, "color": "#fdcb6e", "label": "Zone 3"},
-    {"limit": 15, "price": 1.50, "color": "#0984e3", "label": "Zone 2"},
-    {"limit": 10, "price": 0.00, "color": "#00b894", "label": "Zone 1"},
+    {"dist": 30000, "price": 6.00, "color": "#d63031", "label": "Zone 5 (30km)"},
+    {"dist": 25000, "price": 4.50, "color": "#e056fd", "label": "Zone 4 (25km)"},
+    {"dist": 20000, "price": 3.00, "color": "#fdcb6e", "label": "Zone 3 (20km)"},
+    {"dist": 15000, "price": 1.50, "color": "#0984e3", "label": "Zone 2 (15km)"},
+    {"dist": 10000, "price": 0.00, "color": "#00b894", "label": "Zone 1 (10km)"},
 ]
 
-# Calcul automatique des rayons visuels
-for zone in ZONES_CONFIG:
-    zone['radius'] = (zone['limit'] / DETOUR_COEFF) * 1000  # Conversion en mètres
+# Fichier de sauvegarde des zones (Pour ne plus utiliser la clé)
+ZONE_FILE = "zones_memoire.json"
 
 # =========================================================
+# 🛠️ FONCTIONS
+# =========================================================
 
-st.set_page_config(page_title="Delepine Services", page_icon="🏠", layout="wide")
+def get_cached_isochrones():
+    """
+    Système intelligent : 
+    1. Regarde si le fichier 'zones_memoire.json' existe.
+    2. Si OUI : Charge les zones sans clé API (Rapide & Gratuit).
+    3. Si NON : Utilise la clé UNE fois pour les télécharger et les sauver.
+    """
+    # 1. Essai de chargement depuis la mémoire
+    if os.path.exists(ZONE_FILE):
+        try:
+            with open(ZONE_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            pass # Si fichier corrompu, on re-télécharge
 
-# --- CSS PRO ---
-st.markdown("""
-    <style>
-    [data-testid="stSidebar"] { min-width: 400px; max-width: 400px; }
-    
-    .price-box {
-        background-color: #ffffff;
-        padding: 20px; border-radius: 12px; text-align: center;
-        border: 1px solid #eee; border-top: 8px solid #ccc;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1); margin-bottom: 20px;
-    }
-    .big-price { font-size: 42px; font-weight: 800; margin: 10px 0; letter-spacing: -1px;}
-    .zone-badge {
-        display: inline-block; padding: 6px 18px; border-radius: 20px;
-        color: white; font-weight: bold; text-transform: uppercase;
-        font-size: 0.9rem; letter-spacing: 1px; box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-    }
-    .route-warning {
-        font-size: 0.75rem; color: #fff; background: #2ecc71;
-        padding: 4px 12px; border-radius: 4px; margin-top: 10px; display: inline-block;
-        font-weight: 600;
-    }
-    .info-grid {
-        display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
-        margin-top: 15px; text-align: left;
-    }
-    .info-item {
-        background: #f8f9fa; padding: 8px; border-radius: 6px;
-        font-size: 0.85rem; border-left: 3px solid #ddd;
-    }
-    .info-item b { display: block; font-size: 1rem; color: #2d3436; }
-    
-    .legend-row {
-        display: flex; justify-content: space-between; padding: 6px 12px;
-        margin-bottom: 4px; border-radius: 4px; color: white;
-        font-weight: 600; font-size: 0.8rem; align-items: center;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-# --- ETAT ---
-if 'route_data' not in st.session_state: st.session_state.route_data = None
-if 'last_coords' not in st.session_state: st.session_state.last_coords = None
-
-# --- MOTEUR DE CALCUL (OSRM) ---
-def calculate_price_tier(km_route):
-    # Logique : On paie pour les kilomètres RÉELS parcourus (Route)
-    base_price = 25.00
-    fee = 6.00
-    color = "#636e72"
-    label = "HORS ZONE (>30km)"
-    
-    # Tri du plus petit au plus grand pour trouver la bonne tranche
-    sorted_zones = sorted(ZONES_CONFIG, key=lambda x: x['limit'])
-    
-    for zone in sorted_zones:
-        if km_route <= zone['limit']:
-            fee = zone['price']
-            color = zone['color']
-            label = f"{zone['label']}"
-            break
-            
-    return { "total": base_price + fee, "fee": fee, "color": color, "label": label }
+    # 2. Téléchargement depuis OpenRouteService (Fournisseur "Tache d'huile")
+    # C'est le seul moment où la clé est nécessaire.
+    try:
+        headers = {
+            'Authorization': ORS_API_KEY,
+            'Content-Type': 'application/json'
+        }
+        body = {
+            "locations": [[HOME_COORDS[1], HOME_COORDS[0]]],
+            "range": [z["dist"] for z in ZONES_CONFIG],
+            "range_type": "distance",
+            "units": "m",
+            "smoothing": 5
+        }
+        # Appel API
+        r = requests.post('https://api.openrouteservice.org/v2/isochrones/driving-car', json=body, headers=headers)
+        
+        if r.status_code == 200:
+            data = r.json()
+            # 3. Sauvegarde immédiate dans le fichier
+            with open(ZONE_FILE, 'w') as f:
+                json.dump(data, f)
+            return data
+        else:
+            st.error(f"Erreur API Zone: {r.text}")
+            return None
+    except Exception as e:
+        st.error(f"Erreur connexion: {e}")
+        return None
 
 def get_route_osrm(dest_lat, dest_lon):
-    # 1. Essai Route Sans Péage/Autoroute
+    """Calcul itinéraire via OSRM (Gratuit, Sans clé, Hors péage)"""
     base_url = f"http://router.project-osrm.org/route/v1/driving/{HOME_COORDS[1]},{HOME_COORDS[0]};{dest_lon},{dest_lat}"
     
-    # Paramètres : Exclure autoroutes
+    # On force l'exclusion des autoroutes/péages
     params = {"overview": "full", "geometries": "geojson", "exclude": "motorway,toll"}
     
-    final_data = None
     used_highway = False
-    
+    final_data = None
+
     try:
-        r = requests.get(base_url, params=params, timeout=3)
+        # Tentative 1 : Sans péage
+        r = requests.get(base_url, params=params, timeout=4)
         if r.status_code == 200 and r.json()['code'] == 'Ok':
             final_data = r.json()
         else:
             raise Exception("Fallback")
     except:
-        # 2. Si échec (trop loin ou bug serveur), route standard
+        # Tentative 2 : Route normale si "sans péage" est impossible
+        used_highway = True
         try:
-            used_highway = True
-            r = requests.get(base_url, params={"overview": "full", "geometries": "geojson"}, timeout=3)
+            r = requests.get(base_url, params={"overview": "full", "geometries": "geojson"}, timeout=4)
             if r.status_code == 200:
                 final_data = r.json()
         except:
@@ -130,14 +110,37 @@ def get_route_osrm(dest_lat, dest_lon):
         duration_min = round(route['duration'] / 60)
         geometry = [(lat, lon) for lon, lat in route['geometry']['coordinates']]
         
-        return { 
-            "dist_km": dist_km, 
-            "duration_min": duration_min, 
-            "geometry": geometry, 
-            "price_info": calculate_price_tier(dist_km),
-            "highway_excluded": not used_highway
+        # Calcul du prix selon la distance réelle parcourue
+        price_info = calculate_price(dist_km)
+        
+        return {
+            "dist_km": dist_km,
+            "duration_min": duration_min,
+            "geometry": geometry,
+            "price_info": price_info,
+            "toll_free": not used_highway
         }
     return None
+
+def calculate_price(km):
+    base = 25.00
+    fee = 6.00
+    label = "Hors Zone (>30km)"
+    color = "#636e72"
+    
+    # On trie les zones pour trouver la bonne
+    # Attention : la config est en mètres, on compare en km
+    sorted_zones = sorted(ZONES_CONFIG, key=lambda x: x['dist'])
+    
+    for zone in sorted_zones:
+        limit_km = zone['dist'] / 1000
+        if km <= limit_km:
+            fee = zone['price']
+            color = zone['color']
+            label = zone['label']
+            break
+            
+    return {"total": base + fee, "fee": fee, "color": color, "label": label}
 
 def search_nominatim(address):
     try:
@@ -149,19 +152,53 @@ def search_nominatim(address):
         return None
 
 # =========================================================
-# 🖥️ INTERFACE
+# 🖥️ APPLICATION
 # =========================================================
+st.set_page_config(page_title="Delepine Services", page_icon="🏠", layout="wide")
+
+# CSS Pro
+st.markdown("""
+    <style>
+    [data-testid="stSidebar"] { min-width: 400px; max-width: 400px; }
+    .price-box {
+        background-color: #fff; padding: 20px; border-radius: 12px;
+        text-align: center; border: 1px solid #eee; border-top: 8px solid #ccc;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.08); margin-bottom: 20px;
+    }
+    .big-price { font-size: 42px; font-weight: 800; margin: 10px 0; color: #2d3436; }
+    .zone-badge {
+        display: inline-block; padding: 6px 18px; border-radius: 20px;
+        color: white; font-weight: bold; text-transform: uppercase; font-size: 0.9rem;
+    }
+    .legend-row {
+        display: flex; justify-content: space-between; padding: 5px 10px;
+        margin-bottom: 2px; border-radius: 4px; color: white; font-size: 0.8rem;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# Session
+if 'route_data' not in st.session_state: st.session_state.route_data = None
+if 'last_coords' not in st.session_state: st.session_state.last_coords = None
+
+# --- SIDEBAR ---
 with st.sidebar:
     st.title("🏠 Delepine Services")
-    st.caption("📍 Départ : Auby | 🛣️ Calcul : Km Réel (Hors Péage)")
+    st.caption("📍 Départ : Auby (Maison)")
     
+    # Indicateur de Mémoire des Zones
+    if os.path.exists(ZONE_FILE):
+        st.success("✅ Zones chargées depuis la mémoire (Pas de clé requise)", icon="💾")
+    else:
+        st.warning("⚠️ Premier lancement : Clé requise pour générer la mémoire.", icon="🔑")
+
     st.markdown("---")
     
     # Recherche
-    c1, c2 = st.columns([3, 1])
-    with c1:
-        addr = st.text_input("Adresse", placeholder="Ex: Mairie de Douai", label_visibility="collapsed")
-    with c2:
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        addr = st.text_input("Adresse", placeholder="Ville, Rue...", label_visibility="collapsed")
+    with col2:
         if st.button("🔎", type="primary") and addr:
             coords = search_nominatim(addr)
             if coords:
@@ -171,75 +208,77 @@ with st.sidebar:
             else:
                 st.error("Introuvable")
 
-    # Affichage Résultats
+    # Résultat
     if st.session_state.route_data:
         d = st.session_state.route_data
         p = d['price_info']
         
-        warn_txt = "✅ Route Sans Péage" if d['highway_excluded'] else "⚠️ Route Standard (Optimisée)"
-        warn_col = "#2ecc71" if d['highway_excluded'] else "#95a5a6"
+        warn_msg = "✅ Itinéraire Sans Péage" if d['toll_free'] else "⚠️ Itinéraire Standard (Péage possible)"
         
         st.markdown(f"""
         <div class="price-box" style="border-top-color: {p['color']};">
             <div class="zone-badge" style="background-color: {p['color']};">{p['label']}</div>
             <div class="big-price" style="color: {p['color']};">{p['total']:.2f} €</div>
-            <div style="color:#999; font-size:0.8rem; text-transform:uppercase; letter-spacing:1px;">Total Déplacement</div>
-            
-            <div class="info-grid">
-                <div class="info-item" style="border-color:{p['color']}">📏 Distance Route<b>{d['dist_km']} km</b></div>
-                <div class="info-item" style="border-color:{p['color']}">⏱️ Durée Est.<b>{d['duration_min']} min</b></div>
-                <div class="info-item" style="border-color:{p['color']}">⛽ Frais Zone<b>{p['fee']:.2f} €</b></div>
-                <div class="info-item" style="border-color:{p['color']}">🏠 Forfait Base<b>25.00 €</b></div>
+            <div style="font-size:0.9rem; color:#666;">
+                Distance réelle : <b>{d['dist_km']} km</b><br>
+                Durée : <b>{d['duration_min']} min</b>
             </div>
-            
-            <div class="route-warning" style="background:{warn_col}">{warn_txt}</div>
+            <div style="margin-top:10px; font-size:0.75rem; background:#eee; padding:5px; border-radius:4px;">
+                {warn_msg}
+            </div>
         </div>
         """, unsafe_allow_html=True)
-    
-    # Grille Tarifaire
-    st.markdown("---")
-    st.markdown("##### 🏷️ Grille Tarifaire (Km Route)")
-    for z in sorted(ZONES_CONFIG, key=lambda x: x['limit']):
-        price = "Gratuit" if z['price'] == 0 else f"+{z['price']} €"
-        st.markdown(f"""
-        <div class="legend-row" style="background:{z['color']};">
-            <span>{z['label']} (0-{z['limit']} km)</span><span>{price}</span>
-        </div>""", unsafe_allow_html=True)
-    st.caption("ℹ️ Les zones sur la carte sont ajustées pour refléter la distance réelle par la route (Coeff 1.3).")
 
-# =========================================================
-# 🗺️ CARTE
-# =========================================================
+    # Légende
+    st.markdown("---")
+    st.markdown("##### 🏷️ Tarifs Zones")
+    for z in sorted(ZONES_CONFIG, key=lambda x: x['dist']):
+        price_txt = "Gratuit" if z['price'] == 0 else f"+{z['price']} €"
+        dist_km = int(z['dist']/1000)
+        st.markdown(f'<div class="legend-row" style="background:{z["color"]}">'
+                    f'<span>Zone {dist_km} km</span><span>{price_txt}</span></div>', 
+                    unsafe_allow_html=True)
+    st.markdown('<div class="legend-row" style="background:#636e72">'
+                '<span>Hors Zone</span><span>+6.00 €</span></div>', unsafe_allow_html=True)
+
+# --- MAP ---
 m = folium.Map(location=HOME_COORDS, zoom_start=11, tiles='CartoDB voyager')
 
-# 1. Cercles Ajustés (Visuel Intelligent)
-for z in reversed(ZONES_CONFIG): # Du plus grand au plus petit
-    folium.Circle(
-        location=HOME_COORDS,
-        radius=z['radius'], # Rayon réduit (astuce)
-        color=z['color'],
-        weight=1,
-        fill=True, fill_opacity=0.1,
-        tooltip=f"{z['label']} (Limite route: {z['limit']}km)"
+# 1. Affichage des Zones (Isochrones "Tache d'huile")
+zones_json = get_cached_isochrones()
+
+if zones_json:
+    # Fonction de style pour colorier les zones selon la valeur (distance)
+    def style_function(feature):
+        val = feature['properties']['value']
+        color = "#636e72" # Defaut
+        # On cherche la couleur correspondante dans la config
+        # Les isochrones ORS retournent la valeur en mètres
+        for z in sorted(ZONES_CONFIG, key=lambda x: x['dist']):
+            if val <= z['dist']:
+                color = z['color']
+                break
+        return {'fillColor': color, 'color': color, 'weight': 1.5, 'fillOpacity': 0.15}
+
+    folium.GeoJson(
+        zones_json,
+        style_function=style_function,
+        name="Zones de Chalandise"
     ).add_to(m)
 
-# 2. Marqueurs & Route
+# 2. Marqueurs et Route
 folium.Marker(HOME_COORDS, icon=folium.Icon(color="black", icon="home", prefix="fa"), tooltip="Siège").add_to(m)
 
 if st.session_state.route_data:
+    # Ligne de trajet
     folium.PolyLine(
-        st.session_state.route_data['geometry'], 
+        st.session_state.route_data['geometry'],
         color="#2d3436", weight=5, opacity=0.8
     ).add_to(m)
-    folium.Marker(st.session_state.last_coords, icon=folium.Icon(color="red", icon="user", prefix="fa")).add_to(m)
+    # Marqueur Arrivée
+    folium.Marker(
+        st.session_state.last_coords,
+        icon=folium.Icon(color="red", icon="user", prefix="fa")
+    ).add_to(m)
 
-# 3. Rendu
-map_out = st_folium(m, width="100%", height=700)
-
-if map_out['last_clicked']:
-    lat, lon = map_out['last_clicked']['lat'], map_out['last_clicked']['lng']
-    # Eviter refresh boucle infinie
-    if not st.session_state.last_coords or abs(st.session_state.last_coords[0] - lat) > 0.0001:
-        st.session_state.last_coords = [lat, lon]
-        st.session_state.route_data = get_route_osrm(lat, lon)
-        st.rerun()
+st_folium(m, width="100%", height=700)
