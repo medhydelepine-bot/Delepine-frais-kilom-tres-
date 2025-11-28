@@ -12,8 +12,7 @@ import os
 # Coordonnées EXACTES de votre maison (Auby)
 HOME_COORDS = [50.414787, 3.056332]
 
-# Ta clé OpenRouteService (Utilisée juste UNE fois pour la mémoire)
-# J'ai remis celle de ton fichier d'origine.
+# Clé API (Utilisée uniquement la première fois pour générer le fichier)
 ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjI5Yjg3NDA2NjI1NzRhNjFhNzA0ZmZjMTg2Nzc5ZmMyIiwiaCI6Im11cm11cjY0In0="
 
 # Configuration des Prix
@@ -25,7 +24,6 @@ ZONES_CONFIG = [
     {"dist": 10000, "price": 0.00, "color": "#00b894", "label": "Zone 1 (10km)"},
 ]
 
-# Fichier de sauvegarde des zones (Pour ne plus utiliser la clé)
 ZONE_FILE = "zones_memoire.json"
 
 # =========================================================
@@ -33,92 +31,71 @@ ZONE_FILE = "zones_memoire.json"
 # =========================================================
 
 def get_cached_isochrones():
-    """
-    Système intelligent : 
-    1. Regarde si le fichier 'zones_memoire.json' existe.
-    2. Si OUI : Charge les zones sans clé API (Rapide & Gratuit).
-    3. Si NON : Utilise la clé UNE fois pour les télécharger et les sauver.
-    """
-    # 1. Essai de chargement depuis la mémoire
+    # Charge ou télécharge les zones UNE SEULE FOIS
     if os.path.exists(ZONE_FILE):
         try:
             with open(ZONE_FILE, 'r') as f:
                 return json.load(f)
         except:
-            pass # Si fichier corrompu, on re-télécharge
+            pass 
 
-    # 2. Téléchargement depuis OpenRouteService (Fournisseur "Tache d'huile")
-    # C'est le seul moment où la clé est nécessaire.
     try:
-        headers = {
-            'Authorization': ORS_API_KEY,
-            'Content-Type': 'application/json'
-        }
+        headers = {'Authorization': ORS_API_KEY, 'Content-Type': 'application/json'}
         body = {
             "locations": [[HOME_COORDS[1], HOME_COORDS[0]]],
             "range": [z["dist"] for z in ZONES_CONFIG],
-            "range_type": "distance",
-            "units": "m",
-            "smoothing": 5
+            "range_type": "distance", "units": "m", "smoothing": 5
         }
-        # Appel API
         r = requests.post('https://api.openrouteservice.org/v2/isochrones/driving-car', json=body, headers=headers)
-        
         if r.status_code == 200:
             data = r.json()
-            # 3. Sauvegarde immédiate dans le fichier
             with open(ZONE_FILE, 'w') as f:
                 json.dump(data, f)
             return data
-        else:
-            st.error(f"Erreur API Zone: {r.text}")
-            return None
-    except Exception as e:
-        st.error(f"Erreur connexion: {e}")
+    except:
         return None
 
 def get_route_osrm(dest_lat, dest_lon):
-    """Calcul itinéraire via OSRM (Gratuit, Sans clé, Hors péage)"""
+    # Calcul itinéraire OSRM (Gratuit & Rapide)
+    # Note: OSRM prend Lon,Lat mais on lui passe Lat,Lon dans l'URL donc on inverse
     base_url = f"http://router.project-osrm.org/route/v1/driving/{HOME_COORDS[1]},{HOME_COORDS[0]};{dest_lon},{dest_lat}"
     
-    # On force l'exclusion des autoroutes/péages
+    # On force l'exclusion des péages
     params = {"overview": "full", "geometries": "geojson", "exclude": "motorway,toll"}
     
-    used_highway = False
-    final_data = None
+    data = None
+    toll_free = True
 
     try:
-        # Tentative 1 : Sans péage
-        r = requests.get(base_url, params=params, timeout=4)
-        if r.status_code == 200 and r.json()['code'] == 'Ok':
-            final_data = r.json()
+        # Essai 1 : Sans péage
+        r = requests.get(base_url, params=params, timeout=5)
+        if r.status_code == 200 and r.json().get('code') == 'Ok':
+            data = r.json()
         else:
             raise Exception("Fallback")
     except:
-        # Tentative 2 : Route normale si "sans péage" est impossible
-        used_highway = True
+        # Essai 2 : Route standard (si destination trop loin pour le calcul complexe)
+        toll_free = False
         try:
-            r = requests.get(base_url, params={"overview": "full", "geometries": "geojson"}, timeout=4)
+            r = requests.get(base_url, params={"overview": "full", "geometries": "geojson"}, timeout=5)
             if r.status_code == 200:
-                final_data = r.json()
+                data = r.json()
         except:
             pass
 
-    if final_data:
-        route = final_data['routes'][0]
+    if data:
+        route = data['routes'][0]
         dist_km = round(route['distance'] / 1000, 1)
         duration_min = round(route['duration'] / 60)
+        # Conversion GeoJSON (Lon, Lat) vers Folium (Lat, Lon)
         geometry = [(lat, lon) for lon, lat in route['geometry']['coordinates']]
-        
-        # Calcul du prix selon la distance réelle parcourue
-        price_info = calculate_price(dist_km)
         
         return {
             "dist_km": dist_km,
             "duration_min": duration_min,
             "geometry": geometry,
-            "price_info": price_info,
-            "toll_free": not used_highway
+            "price_info": calculate_price(dist_km),
+            "toll_free": toll_free
         }
     return None
 
@@ -128,13 +105,9 @@ def calculate_price(km):
     label = "Hors Zone (>30km)"
     color = "#636e72"
     
-    # On trie les zones pour trouver la bonne
-    # Attention : la config est en mètres, on compare en km
     sorted_zones = sorted(ZONES_CONFIG, key=lambda x: x['dist'])
-    
     for zone in sorted_zones:
-        limit_km = zone['dist'] / 1000
-        if km <= limit_km:
+        if km <= (zone['dist'] / 1000):
             fee = zone['price']
             color = zone['color']
             label = zone['label']
@@ -143,20 +116,25 @@ def calculate_price(km):
     return {"total": base + fee, "fee": fee, "color": color, "label": label}
 
 def search_nominatim(address):
+    # CORRECTION : Ajout d'un User-Agent valide pour éviter le blocage
     try:
         url = "https://nominatim.openstreetmap.org/search"
-        r = requests.get(url, params={"q": address, "format": "json", "limit": 1, "countrycodes": "fr"}, headers={'User-Agent': 'DelepineApp/1.0'})
-        if r.status_code == 200 and r.json():
-            return float(r.json()[0]['lat']), float(r.json()[0]['lon'])
-    except:
-        return None
+        headers = {'User-Agent': 'DelepineServicesApp/2.0 (contact@delepine.com)'}
+        params = {"q": address, "format": "json", "limit": 1, "countrycodes": "fr"}
+        
+        r = requests.get(url, params=params, headers=headers, timeout=5)
+        if r.status_code == 200 and len(r.json()) > 0:
+            res = r.json()[0]
+            return float(res['lat']), float(res['lon'])
+    except Exception as e:
+        st.error(f"Erreur recherche: {e}")
+    return None
 
 # =========================================================
 # 🖥️ APPLICATION
 # =========================================================
 st.set_page_config(page_title="Delepine Services", page_icon="🏠", layout="wide")
 
-# CSS Pro
 st.markdown("""
     <style>
     [data-testid="stSidebar"] { min-width: 400px; max-width: 400px; }
@@ -177,108 +155,96 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Session
+# --- SESSION STATE ---
 if 'route_data' not in st.session_state: st.session_state.route_data = None
 if 'last_coords' not in st.session_state: st.session_state.last_coords = None
 
 # --- SIDEBAR ---
 with st.sidebar:
     st.title("🏠 Delepine Services")
-    st.caption("📍 Départ : Auby (Maison)")
+    st.caption("📍 Départ : Auby")
     
-    # Indicateur de Mémoire des Zones
-    if os.path.exists(ZONE_FILE):
-        st.success("✅ Zones chargées depuis la mémoire (Pas de clé requise)", icon="💾")
-    else:
-        st.warning("⚠️ Premier lancement : Clé requise pour générer la mémoire.", icon="🔑")
-
+    # 1. Barre de recherche
     st.markdown("---")
-    
-    # Recherche
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        addr = st.text_input("Adresse", placeholder="Ville, Rue...", label_visibility="collapsed")
-    with col2:
-        if st.button("🔎", type="primary") and addr:
-            coords = search_nominatim(addr)
+    c1, c2 = st.columns([3, 1])
+    with c1:
+        addr_input = st.text_input("Adresse", placeholder="Ville, Rue...", label_visibility="collapsed")
+    with c2:
+        search_clicked = st.button("🔎", type="primary")
+
+    # LOGIQUE DE RECHERCHE (Doit être avant l'affichage)
+    if search_clicked and addr_input:
+        with st.spinner("Recherche..."):
+            coords = search_nominatim(addr_input)
             if coords:
                 st.session_state.last_coords = coords
                 st.session_state.route_data = get_route_osrm(coords[0], coords[1])
                 st.rerun()
             else:
-                st.error("Introuvable")
+                st.error("Adresse introuvable. Essayez avec le code postal.")
 
-    # Résultat
+    # 2. Affichage des résultats (S'il y a des données en mémoire)
     if st.session_state.route_data:
         d = st.session_state.route_data
         p = d['price_info']
-        
-        warn_msg = "✅ Itinéraire Sans Péage" if d['toll_free'] else "⚠️ Itinéraire Standard (Péage possible)"
+        warn_msg = "✅ Sans Péage" if d['toll_free'] else "⚠️ Route Standard"
         
         st.markdown(f"""
         <div class="price-box" style="border-top-color: {p['color']};">
             <div class="zone-badge" style="background-color: {p['color']};">{p['label']}</div>
             <div class="big-price" style="color: {p['color']};">{p['total']:.2f} €</div>
-            <div style="font-size:0.9rem; color:#666;">
-                Distance réelle : <b>{d['dist_km']} km</b><br>
-                Durée : <b>{d['duration_min']} min</b>
+            <div style="font-size:0.9rem; color:#666; margin-bottom:10px;">
+                Distance: <b>{d['dist_km']} km</b> | Durée: <b>{d['duration_min']} min</b>
             </div>
-            <div style="margin-top:10px; font-size:0.75rem; background:#eee; padding:5px; border-radius:4px;">
-                {warn_msg}
-            </div>
+            <div style="font-size:0.75rem; background:#eee; padding:5px; border-radius:4px;">{warn_msg}</div>
         </div>
         """, unsafe_allow_html=True)
-
-    # Légende
+    
+    # 3. Légende
     st.markdown("---")
-    st.markdown("##### 🏷️ Tarifs Zones")
+    st.caption("Tarifs par zones")
     for z in sorted(ZONES_CONFIG, key=lambda x: x['dist']):
-        price_txt = "Gratuit" if z['price'] == 0 else f"+{z['price']} €"
-        dist_km = int(z['dist']/1000)
-        st.markdown(f'<div class="legend-row" style="background:{z["color"]}">'
-                    f'<span>Zone {dist_km} km</span><span>{price_txt}</span></div>', 
-                    unsafe_allow_html=True)
-    st.markdown('<div class="legend-row" style="background:#636e72">'
-                '<span>Hors Zone</span><span>+6.00 €</span></div>', unsafe_allow_html=True)
+        p_txt = "Gratuit" if z['price'] == 0 else f"+{z['price']} €"
+        st.markdown(f'<div class="legend-row" style="background:{z["color"]}"><span>Zone {int(z["dist"]/1000)} km</span><span>{p_txt}</span></div>', unsafe_allow_html=True)
 
-# --- MAP ---
+# --- CARTE (Doit utiliser les données du State) ---
 m = folium.Map(location=HOME_COORDS, zoom_start=11, tiles='CartoDB voyager')
 
-# 1. Affichage des Zones (Isochrones "Tache d'huile")
+# Zones
 zones_json = get_cached_isochrones()
-
 if zones_json:
-    # Fonction de style pour colorier les zones selon la valeur (distance)
-    def style_function(feature):
+    def style_fn(feature):
         val = feature['properties']['value']
-        color = "#636e72" # Defaut
-        # On cherche la couleur correspondante dans la config
-        # Les isochrones ORS retournent la valeur en mètres
+        col = "#636e72"
         for z in sorted(ZONES_CONFIG, key=lambda x: x['dist']):
-            if val <= z['dist']:
-                color = z['color']
-                break
-        return {'fillColor': color, 'color': color, 'weight': 1.5, 'fillOpacity': 0.15}
+            if val <= z['dist']: col = z['color']; break
+        return {'fillColor': col, 'color': col, 'weight': 1, 'fillOpacity': 0.15}
+    folium.GeoJson(zones_json, style_function=style_fn, interactive=False).add_to(m)
 
-    folium.GeoJson(
-        zones_json,
-        style_function=style_function,
-        name="Zones de Chalandise"
-    ).add_to(m)
-
-# 2. Marqueurs et Route
 folium.Marker(HOME_COORDS, icon=folium.Icon(color="black", icon="home", prefix="fa"), tooltip="Siège").add_to(m)
 
+# ⚠️ AJOUT IMPORTANT : Dessiner la route AVANT d'afficher la carte
 if st.session_state.route_data:
-    # Ligne de trajet
-    folium.PolyLine(
-        st.session_state.route_data['geometry'],
-        color="#2d3436", weight=5, opacity=0.8
-    ).add_to(m)
-    # Marqueur Arrivée
-    folium.Marker(
-        st.session_state.last_coords,
-        icon=folium.Icon(color="red", icon="user", prefix="fa")
-    ).add_to(m)
+    folium.PolyLine(st.session_state.route_data['geometry'], color="#2d3436", weight=5, opacity=0.8).add_to(m)
+    folium.Marker(st.session_state.last_coords, icon=folium.Icon(color="red", icon="user", prefix="fa")).add_to(m)
 
-st_folium(m, width="100%", height=700)
+# Affichage Carte
+map_out = st_folium(m, width="100%", height=700)
+
+# LOGIQUE DU CLIC (Déclenche le Rerun)
+if map_out['last_clicked']:
+    clat = map_out['last_clicked']['lat']
+    clon = map_out['last_clicked']['lng']
+    
+    # On vérifie si c'est un nouveau clic pour éviter boucle infinie
+    is_new = True
+    if st.session_state.last_coords:
+        # Si la distance avec l'ancien clic est minuscule, c'est le même clic (refresh)
+        if abs(st.session_state.last_coords[0] - clat) < 0.0001:
+            is_new = False
+    
+    if is_new:
+        with st.spinner("Calcul itinéraire..."):
+            st.session_state.last_coords = [clat, clon]
+            st.session_state.route_data = get_route_osrm(clat, clon)
+            st.rerun()
