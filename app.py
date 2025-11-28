@@ -2,17 +2,15 @@ import streamlit as st
 import folium
 from streamlit_folium import st_folium
 import requests
-import polyline  # Nécessaire pour décoder la géométrie OSRM
 
 # =========================================================
-# 🔑 CONFIGURATION (PLUS BESOIN DE CLE API !)
+# 🔑 CONFIGURATION
 # =========================================================
 
 # Coordonnées EXACTES de votre maison (Auby)
 HOME_COORDS = [50.414787, 3.056332]
 
-# Configuration des Zones (Couleur, Rayon en mètres, Label, Prix)
-# L'ordre est important : du plus GRAND au plus PETIT pour l'affichage des cercles
+# Configuration des Zones (Cercles concentriques)
 ZONES_CONFIG = [
     {"limit": 30, "radius": 30000, "price": 6.00, "color": "#d63031", "label": "Zone 5"},
     {"limit": 25, "radius": 25000, "price": 4.50, "color": "#e056fd", "label": "Zone 4"},
@@ -25,27 +23,26 @@ ZONES_CONFIG = [
 
 st.set_page_config(page_title="Delepine Services", page_icon="🏠", layout="wide")
 
-# --- CSS (Design Compact & Centré) ---
+# --- CSS ---
 st.markdown("""
     <style>
     [data-testid="stSidebar"] { min-width: 400px; max-width: 400px; }
     
     .price-box {
         background-color: #ffffff;
-        padding: 15px;
-        border-radius: 10px;
-        text-align: center;
-        border: 1px solid #eee;
-        border-top: 6px solid #ccc;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-        margin-bottom: 15px;
-        margin-top: 10px;
+        padding: 15px; border-radius: 10px; text-align: center;
+        border: 1px solid #eee; border-top: 6px solid #ccc;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 15px; margin-top: 10px;
     }
     .big-price { font-size: 38px; font-weight: 800; margin: 5px 0; }
     .zone-badge {
         display: inline-block; padding: 5px 15px; border-radius: 15px;
         color: white; font-weight: bold; text-transform: uppercase;
         font-size: 0.8rem; letter-spacing: 1px; margin-bottom: 5px;
+    }
+    .route-type-badge {
+        font-size: 0.75rem; color: #555; background: #f1f2f6;
+        padding: 2px 8px; border-radius: 4px; margin-top: 5px; display: inline-block;
     }
     .info-container {
         margin-top: 10px; font-size: 0.9rem; color: #555;
@@ -62,7 +59,6 @@ st.markdown("""
     }
     div[data-testid="stImage"] { display: flex; justify-content: center; }
     h1, h2, h3 { text-align: center; }
-    .stCaption { text-align: center; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -75,62 +71,77 @@ if 'last_coords' not in st.session_state:
 # --- CALCULS ---
 def calculate_price_tier(km):
     base_price = 25.00
-    # Par défaut (Hors zone)
     fee = 6.00
     color = "#636e72"
     label = "HORS ZONE (>30km)"
     
-    # On vérifie les zones de la plus petite à la plus grande (logique inverse pour trouver la bonne)
-    # On trie la config par distance croissante pour la logique de prix
     sorted_zones = sorted(ZONES_CONFIG, key=lambda x: x['limit'])
     
-    found_zone = False
     for zone in sorted_zones:
         if km <= zone['limit']:
             fee = zone['price']
             color = zone['color']
             label = f"{zone['label']} (+{fee}€)" if fee > 0 else f"{zone['label']} (Gratuit)"
-            found_zone = True
             break
             
     return { "total": base_price + fee, "fee": fee, "color": color, "label": label }
 
 def get_route_osrm(dest_lat, dest_lon):
-    # Utilisation de l'API publique OSRM (Gratuite, sans clé)
+    # URL de base OSRM
+    base_url = f"http://router.project-osrm.org/route/v1/driving/{HOME_COORDS[1]},{HOME_COORDS[0]};{dest_lon},{dest_lat}"
+    
+    # Configuration par défaut
+    route_found = False
+    data_json = None
+    avoid_highways = True # On tente d'abord sans autoroute
+    
+    # 1. TENTATIVE : SANS AUTOROUTE (exclude=motorway,toll)
     try:
-        url = f"http://router.project-osrm.org/route/v1/driving/{HOME_COORDS[1]},{HOME_COORDS[0]};{dest_lon},{dest_lat}?overview=full&geometries=geojson"
-        r = requests.get(url, timeout=5)
+        params = {"overview": "full", "geometries": "geojson", "exclude": "motorway,toll"}
+        r = requests.get(base_url, params=params, timeout=4)
         if r.status_code == 200:
-            data = r.json()
-            if data['code'] == 'Ok':
-                route = data['routes'][0]
-                dist_km = round(route['distance'] / 1000, 1)
-                duration_min = round(route['duration'] / 60)
-                # Geometry GeoJSON direct
-                geometry = route['geometry']['coordinates']
-                # Inversion Longitude/Latitude pour Folium (GeoJSON est Lon,Lat -> Folium veut Lat,Lon)
-                decoded_geom = [(lat, lon) for lon, lat in geometry]
-                
-                return { 
-                    "dist_km": dist_km, 
-                    "duration_min": duration_min, 
-                    "geometry": decoded_geom, 
-                    "price_info": calculate_price_tier(dist_km) 
-                }
-    except Exception as e:
-        st.error(f"Erreur de calcul d'itinéraire : {e}")
+            res = r.json()
+            # Le serveur public renvoie parfois "NotImplemented" pour les exclusions
+            if res.get('code') == 'Ok':
+                data_json = res
+                route_found = True
+    except:
+        pass # Si ça plante, on passe au plan B
+
+    # 2. PLAN B : ROUTE STANDARD (Si l'exclusion échoue sur le serveur gratuit)
+    if not route_found:
+        avoid_highways = False
+        try:
+            params = {"overview": "full", "geometries": "geojson"} # Pas d'exclusion
+            r = requests.get(base_url, params=params, timeout=4)
+            if r.status_code == 200:
+                res = r.json()
+                if res.get('code') == 'Ok':
+                    data_json = res
+                    route_found = True
+        except Exception as e:
+            st.error(f"Erreur connexion serveur route : {e}")
+
+    if route_found and data_json:
+        route = data_json['routes'][0]
+        dist_km = round(route['distance'] / 1000, 1)
+        duration_min = round(route['duration'] / 60)
+        geometry = route['geometry']['coordinates']
+        decoded_geom = [(lat, lon) for lon, lat in geometry]
+        
+        return { 
+            "dist_km": dist_km, 
+            "duration_min": duration_min, 
+            "geometry": decoded_geom, 
+            "price_info": calculate_price_tier(dist_km),
+            "avoid_highways": avoid_highways # Pour affichage dans l'interface
+        }
     return None
 
 def search_address_nominatim(address):
-    # Utilisation de Nominatim (OpenStreetMap Search) - Gratuit
     url = "https://nominatim.openstreetmap.org/search"
-    params = {
-        "q": address,
-        "format": "json",
-        "limit": 1,
-        "countrycodes": "fr" # Limite à la France
-    }
-    headers = {'User-Agent': 'DelepineServicesApp/1.0'}
+    params = {"q": address, "format": "json", "limit": 1, "countrycodes": "fr"}
+    headers = {'User-Agent': 'DelepineApp/1.0'}
     try:
         r = requests.get(url, params=params, headers=headers)
         if r.status_code == 200 and len(r.json()) > 0:
@@ -175,6 +186,9 @@ with st.sidebar:
         data = st.session_state.route_data
         info = data['price_info']
         
+        # Gestion du petit label "Type de route"
+        route_label = "✅ Route Secondaire (Sans Péage)" if data['avoid_highways'] else "⚠️ Route Standard (Exclusion échouée)"
+        
         st.markdown(f"""
         <div class="price-box" style="border-top-color: {info['color']};">
             <div class="zone-badge" style="background-color: {info['color']};">{info['label']}</div>
@@ -185,17 +199,17 @@ with st.sidebar:
                 <div class="info-line"><span>📏 Distance</span> <b>{data['dist_km']} km</b></div>
                 <div class="info-line"><span>⛽ Supplément</span> <b>{info['fee']:.2f} €</b></div>
             </div>
+            <div class="route-type-badge">{route_label}</div>
         </div>
         """, unsafe_allow_html=True)
     else:
-        st.info("👈 Indiquez une adresse ou cliquez sur la carte")
+        st.info("👈 Entrez une adresse pour calculer l'itinéraire sans péage.")
 
-    # Tableau Tarifaire (Généré dynamiquement)
+    # Tableau Tarifaire
     st.markdown("---")
     st.markdown("<h5 style='text-align: center; margin-bottom: 15px;'>🏷️ Grille Tarifaire</h5>", unsafe_allow_html=True)
     st.markdown('<div style="width: 95%; margin: 0 auto;">', unsafe_allow_html=True)
     
-    # On affiche la légende triée par distance
     for zone in sorted(ZONES_CONFIG, key=lambda x: x['limit']):
         price_txt = "Gratuit" if zone['price'] == 0 else f"+{zone['price']:.2f} €"
         dist_txt = f"{zone['limit']-5}-{zone['limit']} km" if zone['limit'] > 10 else f"0-{zone['limit']} km"
@@ -205,7 +219,6 @@ with st.sidebar:
         </div>
         """, unsafe_allow_html=True)
     
-    # Hors zone manuel
     st.markdown("""
         <div class="legend-row" style="background:#636e72;">
             <span>Hors Zone (>30 km)</span><span>+6.00 €</span>
@@ -221,46 +234,32 @@ tiles_attr = '&copy; OSM contributors &copy; CARTO'
 
 m = folium.Map(location=HOME_COORDS, zoom_start=10, tiles=tiles_url, attr=tiles_attr)
 
-# 1. Dessiner les Zones (Cercles)
-# On dessine du plus grand au plus petit pour qu'ils soient tous visibles
+# Zones (Cercles)
 for zone in ZONES_CONFIG:
     folium.Circle(
         location=HOME_COORDS,
         radius=zone['radius'],
         color=zone['color'],
-        fill=True,
-        fill_color=zone['color'],
-        fill_opacity=0.08, # Très léger pour bien voir la carte
-        weight=1,
-        popup=f"{zone['label']} (+{zone['price']}€)"
+        fill=True, fill_color=zone['color'], fill_opacity=0.08,
+        weight=1, popup=f"{zone['label']} (+{zone['price']}€)"
     ).add_to(m)
 
-# 2. Marqueur Maison
-folium.Marker(
-    HOME_COORDS, 
-    popup="<b>Siège Delepine</b>", 
-    tooltip="Siège",
-    icon=folium.Icon(color="black", icon="home", prefix="fa")
-).add_to(m)
+folium.Marker(HOME_COORDS, popup="<b>Siège Delepine</b>", icon=folium.Icon(color="black", icon="home", prefix="fa")).add_to(m)
 
-# 3. Tracé de la route si existante
 if st.session_state.route_data:
+    # On change la couleur de la route si c'est "Sans autoroute" (Vert) ou "Standard" (Gris foncé)
+    route_color = "#00b894" if st.session_state.route_data['avoid_highways'] else "#2d3436"
+    
     folium.PolyLine(
         locations=st.session_state.route_data['geometry'], 
-        color="#2d3436", 
-        weight=4, 
-        opacity=0.8,
-        dash_array='10'
+        color=route_color, 
+        weight=4, opacity=0.8,
     ).add_to(m)
     
-    folium.Marker(
-        st.session_state.last_coords, 
-        icon=folium.Icon(color="red", icon="user", prefix="fa")
-    ).add_to(m)
+    folium.Marker(st.session_state.last_coords, icon=folium.Icon(color="red", icon="user", prefix="fa")).add_to(m)
 
 map_output = st_folium(m, width="100%", height=700)
 
-# 4. Gestion du Clic sur la carte
 if map_output['last_clicked']:
     clicked_lat = map_output['last_clicked']['lat']
     clicked_lon = map_output['last_clicked']['lng']
