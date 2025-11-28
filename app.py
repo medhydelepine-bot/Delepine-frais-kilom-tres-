@@ -4,273 +4,242 @@ from streamlit_folium import st_folium
 import requests
 
 # =========================================================
-# 🔑 CONFIGURATION
+# ⚙️ CONFIGURATION INTELLIGENTE
 # =========================================================
 
 # Coordonnées EXACTES de votre maison (Auby)
 HOME_COORDS = [50.414787, 3.056332]
 
-# Configuration des Zones (Cercles concentriques)
+# FACTEUR DE DÉTOUR (Astuce Pro)
+# 1.30 signifie qu'il faut rouler 13km pour s'éloigner de 10km à vol d'oiseau.
+# Cela permet d'avoir des cercles visuels qui correspondent à la réalité de la route.
+DETOUR_COEFF = 1.30 
+
+# Configuration des Zones
+# 'limit': La limite réelle payée (Route)
+# 'radius': Le cercle affiché (Vol d'oiseau ajusté pour correspondre à la route)
 ZONES_CONFIG = [
-    {"limit": 30, "radius": 30000, "price": 6.00, "color": "#d63031", "label": "Zone 5"},
-    {"limit": 25, "radius": 25000, "price": 4.50, "color": "#e056fd", "label": "Zone 4"},
-    {"limit": 20, "radius": 20000, "price": 3.00, "color": "#fdcb6e", "label": "Zone 3"},
-    {"limit": 15, "radius": 15000, "price": 1.50, "color": "#0984e3", "label": "Zone 2"},
-    {"limit": 10, "radius": 10000, "price": 0.00, "color": "#00b894", "label": "Zone 1"},
+    {"limit": 30, "price": 6.00, "color": "#d63031", "label": "Zone 5"},
+    {"limit": 25, "price": 4.50, "color": "#e056fd", "label": "Zone 4"},
+    {"limit": 20, "price": 3.00, "color": "#fdcb6e", "label": "Zone 3"},
+    {"limit": 15, "price": 1.50, "color": "#0984e3", "label": "Zone 2"},
+    {"limit": 10, "price": 0.00, "color": "#00b894", "label": "Zone 1"},
 ]
+
+# Calcul automatique des rayons visuels
+for zone in ZONES_CONFIG:
+    zone['radius'] = (zone['limit'] / DETOUR_COEFF) * 1000  # Conversion en mètres
 
 # =========================================================
 
 st.set_page_config(page_title="Delepine Services", page_icon="🏠", layout="wide")
 
-# --- CSS ---
+# --- CSS PRO ---
 st.markdown("""
     <style>
     [data-testid="stSidebar"] { min-width: 400px; max-width: 400px; }
     
     .price-box {
         background-color: #ffffff;
-        padding: 15px; border-radius: 10px; text-align: center;
-        border: 1px solid #eee; border-top: 6px solid #ccc;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 15px; margin-top: 10px;
+        padding: 20px; border-radius: 12px; text-align: center;
+        border: 1px solid #eee; border-top: 8px solid #ccc;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1); margin-bottom: 20px;
     }
-    .big-price { font-size: 38px; font-weight: 800; margin: 5px 0; }
+    .big-price { font-size: 42px; font-weight: 800; margin: 10px 0; letter-spacing: -1px;}
     .zone-badge {
-        display: inline-block; padding: 5px 15px; border-radius: 15px;
+        display: inline-block; padding: 6px 18px; border-radius: 20px;
         color: white; font-weight: bold; text-transform: uppercase;
-        font-size: 0.8rem; letter-spacing: 1px; margin-bottom: 5px;
+        font-size: 0.9rem; letter-spacing: 1px; box-shadow: 0 2px 5px rgba(0,0,0,0.2);
     }
-    .route-type-badge {
-        font-size: 0.75rem; color: #555; background: #f1f2f6;
-        padding: 2px 8px; border-radius: 4px; margin-top: 5px; display: inline-block;
+    .route-warning {
+        font-size: 0.75rem; color: #fff; background: #2ecc71;
+        padding: 4px 12px; border-radius: 4px; margin-top: 10px; display: inline-block;
+        font-weight: 600;
     }
-    .info-container {
-        margin-top: 10px; font-size: 0.9rem; color: #555;
-        display: flex; flex-direction: column; align-items: center; gap: 6px;
+    .info-grid {
+        display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+        margin-top: 15px; text-align: left;
     }
-    .info-line {
-        display: flex; justify-content: space-between; width: 85%;
-        border-bottom: 1px dotted #eee; padding-bottom: 2px;
+    .info-item {
+        background: #f8f9fa; padding: 8px; border-radius: 6px;
+        font-size: 0.85rem; border-left: 3px solid #ddd;
     }
+    .info-item b { display: block; font-size: 1rem; color: #2d3436; }
+    
     .legend-row {
-        display: flex; justify-content: space-between; padding: 4px 12px;
-        margin-bottom: 3px; border-radius: 4px; color: white;
+        display: flex; justify-content: space-between; padding: 6px 12px;
+        margin-bottom: 4px; border-radius: 4px; color: white;
         font-weight: 600; font-size: 0.8rem; align-items: center;
     }
-    div[data-testid="stImage"] { display: flex; justify-content: center; }
-    h1, h2, h3 { text-align: center; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- MEMOIRE ---
-if 'route_data' not in st.session_state:
-    st.session_state.route_data = None
-if 'last_coords' not in st.session_state:
-    st.session_state.last_coords = None
+# --- ETAT ---
+if 'route_data' not in st.session_state: st.session_state.route_data = None
+if 'last_coords' not in st.session_state: st.session_state.last_coords = None
 
-# --- CALCULS ---
-def calculate_price_tier(km):
+# --- MOTEUR DE CALCUL (OSRM) ---
+def calculate_price_tier(km_route):
+    # Logique : On paie pour les kilomètres RÉELS parcourus (Route)
     base_price = 25.00
     fee = 6.00
     color = "#636e72"
     label = "HORS ZONE (>30km)"
     
+    # Tri du plus petit au plus grand pour trouver la bonne tranche
     sorted_zones = sorted(ZONES_CONFIG, key=lambda x: x['limit'])
     
     for zone in sorted_zones:
-        if km <= zone['limit']:
+        if km_route <= zone['limit']:
             fee = zone['price']
             color = zone['color']
-            label = f"{zone['label']} (+{fee}€)" if fee > 0 else f"{zone['label']} (Gratuit)"
+            label = f"{zone['label']}"
             break
             
     return { "total": base_price + fee, "fee": fee, "color": color, "label": label }
 
 def get_route_osrm(dest_lat, dest_lon):
-    # URL de base OSRM
+    # 1. Essai Route Sans Péage/Autoroute
     base_url = f"http://router.project-osrm.org/route/v1/driving/{HOME_COORDS[1]},{HOME_COORDS[0]};{dest_lon},{dest_lat}"
     
-    # Configuration par défaut
-    route_found = False
-    data_json = None
-    avoid_highways = True # On tente d'abord sans autoroute
+    # Paramètres : Exclure autoroutes
+    params = {"overview": "full", "geometries": "geojson", "exclude": "motorway,toll"}
     
-    # 1. TENTATIVE : SANS AUTOROUTE (exclude=motorway,toll)
+    final_data = None
+    used_highway = False
+    
     try:
-        params = {"overview": "full", "geometries": "geojson", "exclude": "motorway,toll"}
-        r = requests.get(base_url, params=params, timeout=4)
-        if r.status_code == 200:
-            res = r.json()
-            # Le serveur public renvoie parfois "NotImplemented" pour les exclusions
-            if res.get('code') == 'Ok':
-                data_json = res
-                route_found = True
+        r = requests.get(base_url, params=params, timeout=3)
+        if r.status_code == 200 and r.json()['code'] == 'Ok':
+            final_data = r.json()
+        else:
+            raise Exception("Fallback")
     except:
-        pass # Si ça plante, on passe au plan B
-
-    # 2. PLAN B : ROUTE STANDARD (Si l'exclusion échoue sur le serveur gratuit)
-    if not route_found:
-        avoid_highways = False
+        # 2. Si échec (trop loin ou bug serveur), route standard
         try:
-            params = {"overview": "full", "geometries": "geojson"} # Pas d'exclusion
-            r = requests.get(base_url, params=params, timeout=4)
+            used_highway = True
+            r = requests.get(base_url, params={"overview": "full", "geometries": "geojson"}, timeout=3)
             if r.status_code == 200:
-                res = r.json()
-                if res.get('code') == 'Ok':
-                    data_json = res
-                    route_found = True
-        except Exception as e:
-            st.error(f"Erreur connexion serveur route : {e}")
+                final_data = r.json()
+        except:
+            pass
 
-    if route_found and data_json:
-        route = data_json['routes'][0]
+    if final_data:
+        route = final_data['routes'][0]
         dist_km = round(route['distance'] / 1000, 1)
         duration_min = round(route['duration'] / 60)
-        geometry = route['geometry']['coordinates']
-        decoded_geom = [(lat, lon) for lon, lat in geometry]
+        geometry = [(lat, lon) for lon, lat in route['geometry']['coordinates']]
         
         return { 
             "dist_km": dist_km, 
             "duration_min": duration_min, 
-            "geometry": decoded_geom, 
+            "geometry": geometry, 
             "price_info": calculate_price_tier(dist_km),
-            "avoid_highways": avoid_highways # Pour affichage dans l'interface
+            "highway_excluded": not used_highway
         }
     return None
 
-def search_address_nominatim(address):
-    url = "https://nominatim.openstreetmap.org/search"
-    params = {"q": address, "format": "json", "limit": 1, "countrycodes": "fr"}
-    headers = {'User-Agent': 'DelepineApp/1.0'}
+def search_nominatim(address):
     try:
-        r = requests.get(url, params=params, headers=headers)
-        if r.status_code == 200 and len(r.json()) > 0:
-            res = r.json()[0]
-            return float(res['lat']), float(res['lon'])
+        url = "https://nominatim.openstreetmap.org/search"
+        r = requests.get(url, params={"q": address, "format": "json", "limit": 1, "countrycodes": "fr"}, headers={'User-Agent': 'DelepineApp/1.0'})
+        if r.status_code == 200 and r.json():
+            return float(r.json()[0]['lat']), float(r.json()[0]['lon'])
     except:
         return None
-    return None
 
 # =========================================================
-# 🖥️ BARRE LATERALE
+# 🖥️ INTERFACE
 # =========================================================
 with st.sidebar:
-    try:
-        col_logo1, col_logo2, col_logo3 = st.columns([1, 2, 1])
-        with col_logo2:
-            st.image("logo.png", use_container_width=True)
-    except:
-        st.markdown("<h2 style='text-align: center;'>🏠 Delepine Services</h2>", unsafe_allow_html=True)
-
-    st.caption("📍 Siège : Auby (Maison)")
-
+    st.title("🏠 Delepine Services")
+    st.caption("📍 Départ : Auby | 🛣️ Calcul : Km Réel (Hors Péage)")
+    
+    st.markdown("---")
+    
     # Recherche
-    st.markdown("---")
-    col_input, col_btn = st.columns([3, 1])
-    with col_input:
-        address_input = st.text_input("Recherche", label_visibility="collapsed", placeholder="Adresse (Ville, Rue...)")
-    with col_btn:
-        search_btn = st.button("🔎", type="primary")
-    
-    if search_btn and address_input:
-        coords = search_address_nominatim(address_input)
-        if coords:
-            st.session_state.last_coords = [coords[0], coords[1]]
-            st.session_state.route_data = get_route_osrm(coords[0], coords[1])
-            st.rerun()
-        else:
-            st.error("Adresse introuvable")
+    c1, c2 = st.columns([3, 1])
+    with c1:
+        addr = st.text_input("Adresse", placeholder="Ex: Mairie de Douai", label_visibility="collapsed")
+    with c2:
+        if st.button("🔎", type="primary") and addr:
+            coords = search_nominatim(addr)
+            if coords:
+                st.session_state.last_coords = coords
+                st.session_state.route_data = get_route_osrm(coords[0], coords[1])
+                st.rerun()
+            else:
+                st.error("Introuvable")
 
-    # Affichage Résultat
+    # Affichage Résultats
     if st.session_state.route_data:
-        data = st.session_state.route_data
-        info = data['price_info']
+        d = st.session_state.route_data
+        p = d['price_info']
         
-        # Gestion du petit label "Type de route"
-        route_label = "✅ Route Secondaire (Sans Péage)" if data['avoid_highways'] else "⚠️ Route Standard (Exclusion échouée)"
+        warn_txt = "✅ Route Sans Péage" if d['highway_excluded'] else "⚠️ Route Standard (Optimisée)"
+        warn_col = "#2ecc71" if d['highway_excluded'] else "#95a5a6"
         
         st.markdown(f"""
-        <div class="price-box" style="border-top-color: {info['color']};">
-            <div class="zone-badge" style="background-color: {info['color']};">{info['label']}</div>
-            <div style="color:#999; font-size:0.75rem; margin-top:5px;">TOTAL PRESTATION</div>
-            <div class="big-price" style="color: {info['color']};">{info['total']:.2f} €</div>
-            <div class="info-container">
-                <div class="info-line"><span>⏱️ Temps</span> <b>{data['duration_min']} min</b></div>
-                <div class="info-line"><span>📏 Distance</span> <b>{data['dist_km']} km</b></div>
-                <div class="info-line"><span>⛽ Supplément</span> <b>{info['fee']:.2f} €</b></div>
+        <div class="price-box" style="border-top-color: {p['color']};">
+            <div class="zone-badge" style="background-color: {p['color']};">{p['label']}</div>
+            <div class="big-price" style="color: {p['color']};">{p['total']:.2f} €</div>
+            <div style="color:#999; font-size:0.8rem; text-transform:uppercase; letter-spacing:1px;">Total Déplacement</div>
+            
+            <div class="info-grid">
+                <div class="info-item" style="border-color:{p['color']}">📏 Distance Route<b>{d['dist_km']} km</b></div>
+                <div class="info-item" style="border-color:{p['color']}">⏱️ Durée Est.<b>{d['duration_min']} min</b></div>
+                <div class="info-item" style="border-color:{p['color']}">⛽ Frais Zone<b>{p['fee']:.2f} €</b></div>
+                <div class="info-item" style="border-color:{p['color']}">🏠 Forfait Base<b>25.00 €</b></div>
             </div>
-            <div class="route-type-badge">{route_label}</div>
+            
+            <div class="route-warning" style="background:{warn_col}">{warn_txt}</div>
         </div>
         """, unsafe_allow_html=True)
-    else:
-        st.info("👈 Entrez une adresse pour calculer l'itinéraire sans péage.")
-
-    # Tableau Tarifaire
+    
+    # Grille Tarifaire
     st.markdown("---")
-    st.markdown("<h5 style='text-align: center; margin-bottom: 15px;'>🏷️ Grille Tarifaire</h5>", unsafe_allow_html=True)
-    st.markdown('<div style="width: 95%; margin: 0 auto;">', unsafe_allow_html=True)
-    
-    for zone in sorted(ZONES_CONFIG, key=lambda x: x['limit']):
-        price_txt = "Gratuit" if zone['price'] == 0 else f"+{zone['price']:.2f} €"
-        dist_txt = f"{zone['limit']-5}-{zone['limit']} km" if zone['limit'] > 10 else f"0-{zone['limit']} km"
+    st.markdown("##### 🏷️ Grille Tarifaire (Km Route)")
+    for z in sorted(ZONES_CONFIG, key=lambda x: x['limit']):
+        price = "Gratuit" if z['price'] == 0 else f"+{z['price']} €"
         st.markdown(f"""
-        <div class="legend-row" style="background:{zone['color']};">
-            <span>{zone['label']} ({dist_txt})</span><span>{price_txt}</span>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    st.markdown("""
-        <div class="legend-row" style="background:#636e72;">
-            <span>Hors Zone (>30 km)</span><span>+6.00 €</span>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+        <div class="legend-row" style="background:{z['color']};">
+            <span>{z['label']} (0-{z['limit']} km)</span><span>{price}</span>
+        </div>""", unsafe_allow_html=True)
+    st.caption("ℹ️ Les zones sur la carte sont ajustées pour refléter la distance réelle par la route (Coeff 1.3).")
 
 # =========================================================
 # 🗺️ CARTE
 # =========================================================
-tiles_url = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'
-tiles_attr = '&copy; OSM contributors &copy; CARTO'
+m = folium.Map(location=HOME_COORDS, zoom_start=11, tiles='CartoDB voyager')
 
-m = folium.Map(location=HOME_COORDS, zoom_start=10, tiles=tiles_url, attr=tiles_attr)
-
-# Zones (Cercles)
-for zone in ZONES_CONFIG:
+# 1. Cercles Ajustés (Visuel Intelligent)
+for z in reversed(ZONES_CONFIG): # Du plus grand au plus petit
     folium.Circle(
         location=HOME_COORDS,
-        radius=zone['radius'],
-        color=zone['color'],
-        fill=True, fill_color=zone['color'], fill_opacity=0.08,
-        weight=1, popup=f"{zone['label']} (+{zone['price']}€)"
+        radius=z['radius'], # Rayon réduit (astuce)
+        color=z['color'],
+        weight=1,
+        fill=True, fill_opacity=0.1,
+        tooltip=f"{z['label']} (Limite route: {z['limit']}km)"
     ).add_to(m)
 
-folium.Marker(HOME_COORDS, popup="<b>Siège Delepine</b>", icon=folium.Icon(color="black", icon="home", prefix="fa")).add_to(m)
+# 2. Marqueurs & Route
+folium.Marker(HOME_COORDS, icon=folium.Icon(color="black", icon="home", prefix="fa"), tooltip="Siège").add_to(m)
 
 if st.session_state.route_data:
-    # On change la couleur de la route si c'est "Sans autoroute" (Vert) ou "Standard" (Gris foncé)
-    route_color = "#00b894" if st.session_state.route_data['avoid_highways'] else "#2d3436"
-    
     folium.PolyLine(
-        locations=st.session_state.route_data['geometry'], 
-        color=route_color, 
-        weight=4, opacity=0.8,
+        st.session_state.route_data['geometry'], 
+        color="#2d3436", weight=5, opacity=0.8
     ).add_to(m)
-    
     folium.Marker(st.session_state.last_coords, icon=folium.Icon(color="red", icon="user", prefix="fa")).add_to(m)
 
-map_output = st_folium(m, width="100%", height=700)
+# 3. Rendu
+map_out = st_folium(m, width="100%", height=700)
 
-if map_output['last_clicked']:
-    clicked_lat = map_output['last_clicked']['lat']
-    clicked_lon = map_output['last_clicked']['lng']
-    
-    is_new = False
-    if st.session_state.last_coords is None:
-        is_new = True
-    elif abs(st.session_state.last_coords[0] - clicked_lat) > 0.0001:
-        is_new = True
-        
-    if is_new:
-        st.session_state.last_coords = [clicked_lat, clicked_lon]
-        st.session_state.route_data = get_route_osrm(clicked_lat, clicked_lon)
+if map_out['last_clicked']:
+    lat, lon = map_out['last_clicked']['lat'], map_out['last_clicked']['lng']
+    # Eviter refresh boucle infinie
+    if not st.session_state.last_coords or abs(st.session_state.last_coords[0] - lat) > 0.0001:
+        st.session_state.last_coords = [lat, lon]
+        st.session_state.route_data = get_route_osrm(lat, lon)
         st.rerun()
