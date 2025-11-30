@@ -12,16 +12,16 @@ import os
 # Coordonnées EXACTES de votre maison (Auby)
 HOME_COORDS = [50.414787, 3.056332]
 
-# Clé API (Utilisée uniquement la première fois pour générer le fichier)
+# Clé API (Utilisée uniquement la première fois pour générer le fichier mémoire)
 ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjI5Yjg3NDA2NjI1NzRhNjFhNzA0ZmZjMTg2Nzc5ZmMyIiwiaCI6Im11cm11cjY0In0="
 
-# Configuration des Prix
+# --- MODIFICATION ICI : Zone 1 à 1.00€ ---
 ZONES_CONFIG = [
     {"dist": 30000, "price": 6.00, "color": "#d63031", "label": "Zone 5 (30km)"},
     {"dist": 25000, "price": 4.50, "color": "#e056fd", "label": "Zone 4 (25km)"},
     {"dist": 20000, "price": 3.00, "color": "#fdcb6e", "label": "Zone 3 (20km)"},
     {"dist": 15000, "price": 1.50, "color": "#0984e3", "label": "Zone 2 (15km)"},
-    {"dist": 10000, "price": 0.00, "color": "#00b894", "label": "Zone 1 (10km)"},
+    {"dist": 10000, "price": 1.00, "color": "#00b894", "label": "Zone 1 (10km)"}, # <--- MODIFIÉ (1€)
 ]
 
 ZONE_FILE = "zones_memoire.json"
@@ -57,7 +57,6 @@ def get_cached_isochrones():
 
 def get_route_osrm(dest_lat, dest_lon):
     # Calcul itinéraire OSRM (Gratuit & Rapide)
-    # Note: OSRM prend Lon,Lat mais on lui passe Lat,Lon dans l'URL donc on inverse
     base_url = f"http://router.project-osrm.org/route/v1/driving/{HOME_COORDS[1]},{HOME_COORDS[0]};{dest_lon},{dest_lat}"
     
     # On force l'exclusion des péages
@@ -74,7 +73,7 @@ def get_route_osrm(dest_lat, dest_lon):
         else:
             raise Exception("Fallback")
     except:
-        # Essai 2 : Route standard (si destination trop loin pour le calcul complexe)
+        # Essai 2 : Route standard (si destination trop loin ou bug serveur)
         toll_free = False
         try:
             r = requests.get(base_url, params={"overview": "full", "geometries": "geojson"}, timeout=5)
@@ -87,7 +86,6 @@ def get_route_osrm(dest_lat, dest_lon):
         route = data['routes'][0]
         dist_km = round(route['distance'] / 1000, 1)
         duration_min = round(route['duration'] / 60)
-        # Conversion GeoJSON (Lon, Lat) vers Folium (Lat, Lon)
         geometry = [(lat, lon) for lon, lat in route['geometry']['coordinates']]
         
         return {
@@ -116,7 +114,7 @@ def calculate_price(km):
     return {"total": base + fee, "fee": fee, "color": color, "label": label}
 
 def search_nominatim(address):
-    # CORRECTION : Ajout d'un User-Agent valide pour éviter le blocage
+    # User-Agent pour éviter le blocage
     try:
         url = "https://nominatim.openstreetmap.org/search"
         headers = {'User-Agent': 'DelepineServicesApp/2.0 (contact@delepine.com)'}
@@ -172,7 +170,6 @@ with st.sidebar:
     with c2:
         search_clicked = st.button("🔎", type="primary")
 
-    # LOGIQUE DE RECHERCHE (Doit être avant l'affichage)
     if search_clicked and addr_input:
         with st.spinner("Recherche..."):
             coords = search_nominatim(addr_input)
@@ -183,7 +180,7 @@ with st.sidebar:
             else:
                 st.error("Adresse introuvable. Essayez avec le code postal.")
 
-    # 2. Affichage des résultats (S'il y a des données en mémoire)
+    # 2. Affichage des résultats
     if st.session_state.route_data:
         d = st.session_state.route_data
         p = d['price_info']
@@ -204,13 +201,12 @@ with st.sidebar:
     st.markdown("---")
     st.caption("Tarifs par zones")
     for z in sorted(ZONES_CONFIG, key=lambda x: x['dist']):
-        p_txt = "Gratuit" if z['price'] == 0 else f"+{z['price']} €"
+        p_txt = "Gratuit" if z['price'] == 0 else f"+{z['price']:.2f} €"
         st.markdown(f'<div class="legend-row" style="background:{z["color"]}"><span>Zone {int(z["dist"]/1000)} km</span><span>{p_txt}</span></div>', unsafe_allow_html=True)
 
-# --- CARTE (Doit utiliser les données du State) ---
+# --- CARTE ---
 m = folium.Map(location=HOME_COORDS, zoom_start=11, tiles='CartoDB voyager')
 
-# Zones
 zones_json = get_cached_isochrones()
 if zones_json:
     def style_fn(feature):
@@ -223,23 +219,18 @@ if zones_json:
 
 folium.Marker(HOME_COORDS, icon=folium.Icon(color="black", icon="home", prefix="fa"), tooltip="Siège").add_to(m)
 
-# ⚠️ AJOUT IMPORTANT : Dessiner la route AVANT d'afficher la carte
 if st.session_state.route_data:
     folium.PolyLine(st.session_state.route_data['geometry'], color="#2d3436", weight=5, opacity=0.8).add_to(m)
     folium.Marker(st.session_state.last_coords, icon=folium.Icon(color="red", icon="user", prefix="fa")).add_to(m)
 
-# Affichage Carte
 map_out = st_folium(m, width="100%", height=700)
 
-# LOGIQUE DU CLIC (Déclenche le Rerun)
 if map_out['last_clicked']:
     clat = map_out['last_clicked']['lat']
     clon = map_out['last_clicked']['lng']
     
-    # On vérifie si c'est un nouveau clic pour éviter boucle infinie
     is_new = True
     if st.session_state.last_coords:
-        # Si la distance avec l'ancien clic est minuscule, c'est le même clic (refresh)
         if abs(st.session_state.last_coords[0] - clat) < 0.0001:
             is_new = False
     
