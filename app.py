@@ -15,16 +15,17 @@ HOME_COORDS = [50.414787, 3.056332]
 # Clé API (Utilisée uniquement la première fois pour générer le fichier mémoire)
 ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjI5Yjg3NDA2NjI1NzRhNjFhNzA0ZmZjMTg2Nzc5ZmMyIiwiaCI6Im11cm11cjY0In0="
 
-# --- MODIFICATION ICI : Zone 1 à 1.00€ ---
+# --- MODIFICATION : SUPPRESSION DE LA ZONE 5 ---
+# La zone max est maintenant 25km.
 ZONES_CONFIG = [
-    {"dist": 30000, "price": 6.00, "color": "#d63031", "label": "Zone 5 (30km)"},
     {"dist": 25000, "price": 4.50, "color": "#e056fd", "label": "Zone 4 (25km)"},
     {"dist": 20000, "price": 3.00, "color": "#fdcb6e", "label": "Zone 3 (20km)"},
     {"dist": 15000, "price": 1.50, "color": "#0984e3", "label": "Zone 2 (15km)"},
-    {"dist": 10000, "price": 1.00, "color": "#00b894", "label": "Zone 1 (10km)"}, # <--- MODIFIÉ (1€)
+    {"dist": 10000, "price": 1.00, "color": "#00b894", "label": "Zone 1 (10km)"},
 ]
 
-ZONE_FILE = "zones_memoire.json"
+# Changement de nom pour forcer la mise à jour de la carte
+ZONE_FILE = "zones_memoire_v2.json"
 
 # =========================================================
 # 🛠️ FONCTIONS
@@ -99,8 +100,8 @@ def get_route_osrm(dest_lat, dest_lon):
 
 def calculate_price(km):
     base = 25.00
-    fee = 6.00
-    label = "Hors Zone (>30km)"
+    fee = 6.00 # Prix par défaut pour Hors Zone
+    label = "Hors Zone (>25km)" # Mise à jour du label
     color = "#636e72"
     
     sorted_zones = sorted(ZONES_CONFIG, key=lambda x: x['dist'])
@@ -203,6 +204,9 @@ with st.sidebar:
     for z in sorted(ZONES_CONFIG, key=lambda x: x['dist']):
         p_txt = "Gratuit" if z['price'] == 0 else f"+{z['price']:.2f} €"
         st.markdown(f'<div class="legend-row" style="background:{z["color"]}"><span>Zone {int(z["dist"]/1000)} km</span><span>{p_txt}</span></div>', unsafe_allow_html=True)
+    
+    # Hors zone explicite
+    st.markdown('<div class="legend-row" style="background:#636e72"><span>Hors Zone (>25 km)</span><span>+6.00 €</span></div>', unsafe_allow_html=True)
 
 # --- CARTE ---
 m = folium.Map(location=HOME_COORDS, zoom_start=11, tiles='CartoDB voyager')
